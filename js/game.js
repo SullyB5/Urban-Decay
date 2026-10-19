@@ -310,7 +310,7 @@ let hitT=0;function hitMark(){hitT=.15;}
 
 /* ======================= tower: enter, leave, build, craft ======================= */
 let baseTab='tower',buildOpen=false,orbitA=0;
-function enterBase(){G.inBase=true;firing=false;useHeld=false;
+function enterBase(){G.inBase=true;flying=false;vert=0;firing=false;useHeld=false;
   const dep={};for(const k of RK){const room=capOf(k)-G.stash[k];const n=Math.min(room,G.pack[k]);if(n>0){G.stash[k]+=n;G.pack[k]-=n;dep[k]=n;}}
   try{document.exitPointerLock&&document.exitPointerLock();}catch(e){}
   S.door();const g=fmt(dep);if(g)toast('Stashed '+g.replace(/\+/g,''),true);
@@ -320,7 +320,7 @@ function leaveBase(){
   const W=WEAP[G.weapon];if(!W.melee&&G.mag[G.weapon]<W.cap){const n=Math.min(W.cap-G.mag[G.weapon],G.pack.ammo);G.mag[G.weapon]+=n;G.pack.ammo-=n;}
   G.inBase=false;G.intro=false;G.trips++;$('base').hidden=true;document.body.classList.remove('inbase');vm.visible=true;
   player.set(TOWER.door.x,1.7,TOWER.door.z+3.5);yaw=PI;pitch=0;vel.set(0,0,0);S.door();save();
-  toast(night>.5?'Dark out there · F for your flashlight':'Out into the wastes · watch your rads',true);}
+  if(night>.5)toast('Dark out there · F for your flashlight');}
 function buildFloor(mod){const n=G.floors.length+1;if(n>TOWER.slots)return;const cost=floorCost(mod,n);if(!afford(cost)){S.deny();return;}
   pay(cost);G.floors.push(mod);S.build();rebuildTower();toast(`Floor ${n} · ${MODS[mod].name} built`,true);
   if(mod==='radio'&&!G.radioFound){G.radioFound=true;setTimeout(()=>toast('Radio picked up three bunker beacons · check Expeditions',true),2600);}
@@ -533,6 +533,29 @@ $('btnLight').addEventListener('click',()=>{flashOn=!flashOn;$('btnLight').class
 $('btnBag').addEventListener('click',openBag);$('btnMap').addEventListener('click',openMap);$('mini').addEventListener('click',openMap);
 $('baseMap').addEventListener('click',openMap);
 
+
+/* ======================= secret: type ASHKING, or tap the title 7 times ======================= */
+let flying=false,vert=0,codeBuf='',tapN=0,tapT=0;
+function toggleCheat(){
+  if(G.cheat){G.cheat=false;flying=false;toast('Cheats off');syncCheatUI();save();return;}
+  G.cheat=true;$('bag').hidden=true;
+  for(const k of RK)G.stash[k]=capOf(k);
+  for(const g of['prybar','snares','pack1','pack2','coat','shotgun','rifle','vest','suit','turret2'])G.gear[g]=true;
+  const pk={ammo:120,meds:5,radaway:5,food:5,water:5};for(const [k,v] of Object.entries(pk))G.pack[k]=Math.max(G.pack[k],v);
+  for(const w of['pistol','shotgun','rifle'])G.mag[w]=WEAP[w].cap;
+  G.radioFound=true;G.hp=100;G.food=100;G.water=100;G.rads=0;G.sta=100;
+  S.build();toast('Ash King · every item, fast feet, V or FLY to take off',true);syncCheatUI();
+  if(G.inBase)renderBase();save();}
+function syncCheatUI(){const c=!!G.cheat&&coarse;$('btnFly').hidden=!c;$('btnUp').hidden=$('btnDown').hidden=!(c&&flying);$('btnFly').classList.toggle('on',flying);$('btnFly').textContent=flying?'LAND':'FLY';}
+function setFly(on){if(!G.cheat)return;flying=on;if(!on){vert=0;vel.y=0;}syncCheatUI();toast(on?'Flying · Space up, C down, V to land':'Landed');}
+function tapSecret(){const now=performance.now();if(now-tapT>2000)tapN=0;tapT=now;if(++tapN>=7){tapN=0;toggleCheat();}}
+$('baseHead').addEventListener('click',e=>{if(e.target.closest('.bt b'))tapSecret();});
+document.querySelector('.brand').addEventListener('pointerdown',e=>{e.stopPropagation();tapSecret();});
+$('btnFly').addEventListener('click',()=>setFly(!flying));
+for(const [id,d] of[['btnUp',1],['btnDown',-1]]){const el=$(id);el.addEventListener('pointerdown',e=>{e.preventDefault();try{el.setPointerCapture(e.pointerId);}catch(_){}vert=d;el.classList.add('on');});
+  const off=()=>{if(vert===d)vert=0;el.classList.remove('on');};el.addEventListener('pointerup',off);el.addEventListener('pointercancel',off);el.addEventListener('lostpointercapture',off);}
+addEventListener('keydown',e=>{if(e.key&&e.key.length===1){codeBuf=(codeBuf+e.key.toUpperCase()).slice(-12);if(codeBuf.endsWith('ASHKING')){codeBuf='';toggleCheat();}}
+  if(e.code==='KeyV'&&G.cheat&&!G.inBase)setFly(!flying);});
 /* ======================= movement ======================= */
 function step(dt){
   let f=0,s=0;
@@ -540,17 +563,20 @@ function step(dt){
     if(keys.ArrowLeft)yaw+=1.9*dt;if(keys.ArrowRight)yaw-=1.9*dt;f+=joy.y;s+=joy.x;}
   const L=Math.hypot(f,s);if(L>1){f/=L;s/=L;}
   const wantRun=(keys.ShiftLeft||keys.ShiftRight||Math.hypot(joy.x,joy.y)>.96)&&L>.1;
-  const run=wantRun&&G.sta>3;G.sta=clamp(G.sta+(run?-16:11)*dt,0,100);
+  const run=wantRun&&(G.sta>3||G.cheat);G.sta=clamp(G.sta+(run&&!G.cheat?-16:11)*dt,0,100);
   const enc=packLoad()>packCap()*.85?.85:1,hurtSlow=G.hp<25?.85:1;
-  const sp=(run?11.5:5.6)*enc*hurtSlow;
+  const sp=(run?11.5:5.6)*enc*hurtSlow*(G.cheat?2.6:1)*(flying?2.2:1);
   const fx=-Math.sin(yaw),fz=-Math.cos(yaw),rx=Math.cos(yaw),rz=-Math.sin(yaw);
   const tx=(fx*f+rx*s)*sp,tz=(fz*f+rz*s)*sp;
-  const a=1-Math.exp(-9*dt);vel.x+=(tx-vel.x)*a;vel.z+=(tz-vel.z)*a;
+  const a=1-Math.exp(-(flying?4:9)*dt);vel.x+=(tx-vel.x)*a;vel.z+=(tz-vel.z)*a;
   player.x+=vel.x*dt;player.z+=vel.z*dt;
-  UD.collide(player,.45,groundY);
-  const gy=UD.groundAt(player.x,player.z);groundY+=(gy-groundY)*(1-Math.exp(-14*dt));player.y=groundY+1.7;
+  const gy=UD.groundAt(player.x,player.z);
+  if(flying){let u=vert;if(!uiOpen()){if(keys.Space)u+=1;if(keys.KeyC||keys.ControlLeft)u-=1;}
+    vel.y+=(clamp(u,-1,1)*(run?45:18)-vel.y)*a;player.y=clamp(player.y+vel.y*dt,gy+1.7,600);
+    UD.collide(player,.45,player.y-1.7);groundY=player.y-1.7;}
+  else{UD.collide(player,.45,groundY);if(groundY>gy+.3){groundY=Math.max(gy,groundY-18*dt);}else groundY+=(gy-groundY)*(1-Math.exp(-14*dt));player.y=groundY+1.7;}
   const spd=Math.hypot(vel.x,vel.z);bob+=spd*dt*1.15;
-  const b=reduceMotion?0:Math.sin(bob*2)*.05*Math.min(spd/5.6,1.5);
+  const b=reduceMotion||flying?0:Math.sin(bob*2)*.05*Math.min(spd/5.6,1.5);
   recoil*=Math.exp(-10*dt);
   camera.position.set(player.x,player.y+b,player.z);camera.rotation.set(pitch+recoil,yaw,0);
   // view model sway
@@ -583,12 +609,13 @@ function hud(dt){
   $('hitmark').style.opacity=hitT>0?1:0;hitT-=dt;
   $('vig').style.opacity=Math.max(hurtT/0.6,G.hp<30?.35+.15*Math.sin(performance.now()/300):0);hurtT=Math.max(0,hurtT-dt);
   $('radvig').style.opacity=clamp(curRad/2.5,0,.7);
+  {const rs=$('radsign'),on=curRad>.05;rs.classList.toggle('on',on);rs.classList.toggle('hot',curRad>1);if(on)rs.style.setProperty('--rb',clamp(1.4-curRad*.4,.25,1.4).toFixed(2)+'s');}
   hudT+=dt;if(hudT<.12)return;hudT=0;
   $('clock').textContent=clockText();$('dayv').textContent='Day '+day();
   const temp=ambientTemp();$('wx').textContent=(stormActive()?'Toxic storm':night>.5?'Ashfall':'Ash haze')+' · '+temp+'°C';
   setBar('bHp',G.hp);setBar('bFood',G.food);setBar('bWater',G.water);setBar('bRad',G.rads);setBar('bSta',G.sta);
   $('vHp').textContent=Math.ceil(G.hp);$('vRad').textContent=Math.round(G.rads);
-  let chips='';if(curRad>.05)chips+=`<span class="st rad">RAD ${curRad.toFixed(1)}/s</span>`;if(cold)chips+='<span class="st cold">COLD</span>';if(heat)chips+='<span class="st heat">HEAT</span>';
+  let chips='';if(cold)chips+='<span class="st cold">COLD</span>';if(heat)chips+='<span class="st heat">HEAT</span>';
   if(nearFire&&!G.inBase&&temp<8)chips+='<span class="st warm">WARM</span>';if(G.food<15)chips+='<span class="st bad">STARVING</span>';if(G.water<15)chips+='<span class="st bad">PARCHED</span>';if(G.rads>50)chips+='<span class="st rad">RAD SICK</span>';
   $('chips').innerHTML=chips;
   $('pack').innerHTML=`PACK <b>${Math.round(packLoad())}</b>/${packCap()}`;
@@ -652,7 +679,7 @@ function start(fresh){S.init();S.resume();
   $('title').hidden=true;A.clear();for(const d of[...drops])removeDrop(d);restoreLoot();rebuildTower();lastHour=Math.floor(G.t);
   hint.classList.remove('gone');hintGone=false;setTimeout(dismissHint,9000);
   if(G.inBase)enterBase();else{$('base').hidden=true;document.body.classList.remove('inbase');vm.visible=true;player.set(TOWER.door.x,1.7,TOWER.door.z+3.5);}
-  running=true;}
+  syncCheatUI();running=true;}
 $('newBtn').addEventListener('click',()=>{if(hasSave()&&!$('contBtn').hidden&&!confirm('Start over? Your current tower and supplies will be lost.'))return;start(true);});
 $('contBtn').addEventListener('click',()=>start(false));
 
