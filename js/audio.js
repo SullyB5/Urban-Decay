@@ -2,7 +2,7 @@
 (function(){
 'use strict';
 const UD=window.UD;if(!UD||UD.failed)return;
-let ac=null,master,windGain,windFilter,noiseBuf;
+let held=false,ac=null,master,windGain,windFilter,noiseBuf;
 function init(){
   if(ac)return;const AC=window.AudioContext||window.webkitAudioContext;if(!AC)return;
   try{ac=new AC();}catch(e){return;}
@@ -20,7 +20,9 @@ function tone(type,f0,f1,dur,vol,delay=0){if(!ac)return;const t=ac.currentTime+d
   const g=ac.createGain();g.gain.setValueAtTime(vol,t);g.gain.exponentialRampToValueAtTime(.0001,t+dur);o.connect(g).connect(master);o.start(t);o.stop(t+dur+.05);}
 UD.sfx={
   init,
-  resume(){if(ac&&ac.state==='suspended')ac.resume();},
+  resume(){if(ac&&ac.state==='suspended'&&!held)ac.resume();},
+  // pause: every sound stops where it is and picks up again on resume
+  hold(p){held=!!p;if(!ac)return;try{(p?ac.suspend():ac.resume()).catch(()=>{});}catch(e){}},
   shot(kind,vol=1){if(kind==='rifle'){noise(.5,4000,200,.9*vol);tone('square',90,30,.25,.4*vol);}
     else if(kind==='shotgun'){noise(.45,2600,150,1*vol);tone('square',70,25,.3,.45*vol);}
     else if(kind==='turret'){noise(.18,3000,400,.35*vol);}

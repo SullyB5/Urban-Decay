@@ -26,8 +26,9 @@ Every lamp-lit door in the city is a walk-in building, drawn room by room from f
 
 ## Controls
 
-Desktop: mouse to look (click to lock), WASD move, Shift run, E to use, enter, climb and search (hold to search), click shoot, R reload, Q swap weapon, F flashlight, Tab pack, M map, Esc closes panels, 1–4 eat / drink / medkit / Rad-Away.
+Desktop: mouse to look (click to lock), WASD move, Shift run, E to use, enter, climb and search (hold to search), click shoot, R reload, Q swap weapon, F flashlight, Tab pack, M map, Esc closes panels (and pauses when none is open), P pauses, 1–4 eat / drink / medkit / Rad-Away.
 Phones: left thumb moves, right thumb looks, FIRE, USE for doors, stairs, benches and searching, tap the minimap for the full map.
+Pause: the button under the minimap, or Esc or P. Releasing the mouse mid-game or switching tabs pauses too. Time, hunger, enemies and sound stand still, and the game saves.
 
 ## Files
 

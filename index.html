@@ -168,6 +168,11 @@ h4{font:700 11px var(--display);letter-spacing:.16em;text-transform:uppercase;co
   .compass{width:min(200px,40vw)}
 }
 @media (prefers-reduced-motion:reduce){#radsign.on{animation:none}.hint,.toast,.prompt,#vig,#radvig{transition:none}}
+/* pause: under the minimap, clear of the compass on phones */
+#pauseBtn{position:fixed;z-index:3;top:calc(var(--sat) + 160px);right:calc(var(--sar) + 12px);width:40px;height:40px;display:grid;place-items:center;padding:0;
+  background:var(--glass);border:1px solid var(--line);border-radius:3px;color:var(--ink);cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+#pauseBtn svg{width:13px;height:15px;fill:currentColor}
+body.inbase #pauseBtn{display:none}
 </style>
 </head>
 <body class="inbase">
@@ -212,6 +217,8 @@ h4{font:700 11px var(--display);letter-spacing:.16em;text-transform:uppercase;co
 </section>
 
 <div class="ov" id="bag" hidden><div class="sheet"><h2>PACK</h2><div id="bagBody"></div><div class="foot"><button class="sm" id="bagClose" type="button">Close</button></div></div></div>
+<button id="pauseBtn" type="button" aria-label="Pause" hidden><svg viewBox="0 0 13 15" aria-hidden="true"><rect width="4.5" height="15"/><rect x="8.5" width="4.5" height="15"/></svg></button>
+<div class="ov" id="pauseov" hidden><div class="sheet"><h2>PAUSED</h2><p class="note" id="pauseTxt">Esc or P to resume. Your game is saved.</p><div class="foot"><button class="sm" id="pauseQuit" type="button">Quit to title</button><button class="big primary" id="pauseResume" type="button">Resume</button></div></div></div>
 <div class="ov" id="mapov" hidden><div class="sheet"><h2>MAP</h2><canvas id="mapCv"></canvas><div id="mapInfo"></div><div class="foot"><button class="sm" id="mapClose" type="button">Close</button></div></div></div>
 <div class="ov" id="noteov" hidden><div class="sheet"><h2>NOTE</h2><p class="note notetxt" id="noteTxt"></p><div class="foot"><button class="sm" id="noteClose" type="button">Put it down</button></div></div></div>
 <div class="ov" id="introov" hidden><div class="sheet"><h2>THE SHELTER HELD</h2>

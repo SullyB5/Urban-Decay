@@ -628,9 +628,32 @@ mapCv.addEventListener('click',e=>{const rc=mapCv.getBoundingClientRect(),mx=e.c
 $('mapClose').addEventListener('click',()=>{$('mapov').hidden=true;});
 const routePoi=()=>G.route?UD.POIS.find(p=>p.id===G.route):null;
 
+/* ======================= pause =======================
+   The button under the minimap, Esc or P on PC. Esc first releases the mouse on PC (the browser keeps that key press),
+   so the mouse being released mid-game pauses too, and so does switching tabs. Esc still closes an open panel first.
+   While paused, time, hunger, enemies and sound all stand still, and the game is saved. */
+let pausedAt=0,wasLocked=false;
+const canPause=()=>running&&!paused&&!G.dead&&!G.inBase&&!uiOpen();
+function pauseGame(){if(!canPause())return;
+  paused=true;pausedAt=performance.now();firing=false;useHeld=false;for(const k in keys)keys[k]=false;
+  try{document.exitPointerLock&&document.exitPointerLock();}catch(e){}
+  $('pauseTxt').textContent=(matchMedia('(pointer:coarse)').matches?'Tap Resume to keep going.':'Esc or P to resume. Click the game to take the mouse back.')+' Your game is saved.';
+  $('pauseov').hidden=false;$('pauseBtn').hidden=true;S.hold&&S.hold(true);save();$('pauseResume').focus({preventScroll:true});}
+function resumeGame(){if(!paused)return;paused=false;last=performance.now();$('pauseov').hidden=true;$('pauseBtn').hidden=false;S.hold&&S.hold(false);}
+$('pauseBtn').addEventListener('pointerdown',e=>e.stopPropagation());
+$('pauseBtn').addEventListener('click',e=>{e.stopPropagation();pauseGame();});
+$('pauseResume').addEventListener('click',resumeGame);
+$('pauseQuit').addEventListener('click',()=>{save();location.reload();});
+addEventListener('keydown',e=>{if(e.target&&e.target.tagName==='INPUT')return;
+  if(paused){if((e.code==='Escape'||e.code==='KeyP')&&performance.now()-pausedAt>250)resumeGame();
+    if(!(e.target instanceof Node&&$('pauseov').contains(e.target)))e.stopImmediatePropagation();return;}   // game keys do nothing while paused
+  if((e.code==='Escape'||e.code==='KeyP')&&canPause()){e.preventDefault();e.stopImmediatePropagation();pauseGame();}},true);
+document.addEventListener('pointerlockchange',()=>{const L=!!document.pointerLockElement;if(wasLocked&&!L)pauseGame();wasLocked=L;});
+document.addEventListener('visibilitychange',()=>{if(document.hidden)pauseGame();});
+
 /* ======================= input ======================= */
 let locked=false;const cv=renderer.domElement;
-const uiOpen=()=>!$('bag').hidden||!$('mapov').hidden||!$('title').hidden||!$('noteov').hidden||!$('introov').hidden||G.dead;
+const uiOpen=()=>!$('pauseov').hidden||!$('bag').hidden||!$('mapov').hidden||!$('title').hidden||!$('noteov').hidden||!$('introov').hidden||G.dead;
 addEventListener('keydown',e=>{if(e.target&&e.target.tagName==='INPUT')return;keys[e.code]=true;
   if(/^(Arrow|Space|Tab)/.test(e.code))e.preventDefault();
   if(e.code==='Escape'){$('bag').hidden=true;$('mapov').hidden=true;$('noteov').hidden=true;$('introov').hidden=true;closePanel();}
@@ -846,15 +869,15 @@ function start(fresh){S.init();S.resume();
   if(G.loc){const l=G.loc;enterPlace(l,l.id!=='tower'?'exit':l.fl===-1?'up':l.fl===0?'exit':'down');}
   else{player.set(TOWER.door.x,1.7,TOWER.door.z+3.5);groundY=0;yaw=PI;}
   if(fresh)$('introov').hidden=false;
-  syncCheatUI();running=true;}
+  syncCheatUI();running=true;$('pauseBtn').hidden=false;}
 $('newBtn').addEventListener('click',()=>{if(hasSave()&&!$('contBtn').hidden&&!confirm('Start over? Your current tower and supplies will be lost.'))return;start(true);});
 $('contBtn').addEventListener('click',()=>start(false));
 
 /* ======================= main loop ======================= */
-let viewOff=false,running=false,last=performance.now(),T=0,lightT=0,geigT=0,lightningT=8;
+let paused=false,viewOff=false,running=false,last=performance.now(),T=0,lightT=0,geigT=0,lightningT=8;
 rebuildTower();restoreLoot();applyTime();showTitle();
 function frame(now){
-  const dt=Math.min(.05,(now-last)/1000),rdt=Math.min(.25,(now-last)/1000);last=now;T+=dt;
+  const dt=paused?0:Math.min(.05,(now-last)/1000),rdt=paused?0:Math.min(.25,(now-last)/1000);last=now;T+=dt;
   if(running&&!G.dead){
     G.t+=dt*24/CYCLE;const h=Math.floor(G.t);if(h!==lastHour){for(let k=lastHour+1;k<=h;k++)onHour(k,false);lastHour=h;}
   }
