@@ -138,6 +138,7 @@ button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .cost.short{color:var(--bad);background:rgba(255,106,74,.1)}.cost.owned{color:var(--good)}
 h4{font:700 11px var(--display);letter-spacing:.16em;text-transform:uppercase;color:var(--accent);margin:14px 0 4px}h4 em{font-style:normal;color:var(--dim);letter-spacing:.06em;text-transform:none}
 .note{color:var(--dim);font-size:10px;line-height:1.5}
+.notetxt{font-size:12px;line-height:1.65;color:var(--ink)}.notetxt b{color:var(--accent)}
 .packline{font-size:10px;letter-spacing:.1em;color:var(--dim);margin-bottom:8px}.packline b{color:var(--ink)}
 .stash{display:flex;flex-direction:column;gap:2px}
 .srow{display:grid;grid-template-columns:1fr 64px 32px 30px 32px;align-items:center;gap:6px;padding:3px 0;border-bottom:1px solid rgba(243,214,160,.08)}
@@ -207,26 +208,33 @@ h4{font:700 11px var(--display);letter-spacing:.16em;text-transform:uppercase;co
   <div id="baseHead"></div>
   <div id="baseTabs" role="tablist"><button data-tab="tower" class="on">Tower</button><button data-tab="craft">Craft</button><button data-tab="stash">Stash</button><button data-tab="exp">Expeditions</button></div>
   <div id="baseBody"></div>
-  <div id="baseFoot"><button class="big" id="baseMap" type="button">Map</button><button class="big" id="sleepBtn" type="button">Sleep</button><button class="big primary" id="outBtn" type="button">Head out</button></div>
+  <div id="baseFoot"><button class="big" id="baseMap" type="button">Map</button><button class="big" id="sleepBtn" type="button">Sleep</button><button class="big primary" id="outBtn" type="button">Back</button></div>
 </section>
 
 <div class="ov" id="bag" hidden><div class="sheet"><h2>PACK</h2><div id="bagBody"></div><div class="foot"><button class="sm" id="bagClose" type="button">Close</button></div></div></div>
 <div class="ov" id="mapov" hidden><div class="sheet"><h2>MAP</h2><canvas id="mapCv"></canvas><div id="mapInfo"></div><div class="foot"><button class="sm" id="mapClose" type="button">Close</button></div></div></div>
+<div class="ov" id="noteov" hidden><div class="sheet"><h2>NOTE</h2><p class="note notetxt" id="noteTxt"></p><div class="foot"><button class="sm" id="noteClose" type="button">Put it down</button></div></div></div>
+<div class="ov" id="introov" hidden><div class="sheet"><h2>THE SHELTER HELD</h2>
+  <p class="note notetxt">You wake in the fallout shelter under Meridian Tower. Walk up to things and press <b>E</b> (or USE) to work them: the bench crafts, the lockers hold your stash, the bunk sleeps you through the night.</p>
+  <p class="note notetxt">Stairs in the corner climb to the lobby and the street door, and up to every floor you rebuild. Out in the city, a warm lamp over a door means you can walk in: houses, shops, offices, the hospital, the MegaMart, and sealed vaults in the outer wastes. Search the furniture, cook on stoves you find, and watch the dark corners.</p>
+  <div class="foot"><button class="big primary" id="introBtn" type="button">Get up</button></div></div></div>
 <div class="ov" id="death" hidden><div class="sheet"><h2>YOU WENT DOWN</h2><p class="note" id="deathTxt"></p><div class="foot"><button class="big primary" id="deathBtn" type="button">Wake in the shelter</button></div></div></div>
 <div class="ov" id="title"><div class="ttl">
   <small>Vista 3D · wasteland survival</small>
   <h1>URBAN DECAY</h1>
-  <p>The bomb fell east of downtown. Your fallout shelter under Meridian Tower held. Scavenge the dead city, survive radiation, storms and the things that roam the streets, then rebuild the tower floor by floor into a home.</p>
+  <p>The bomb fell east of downtown. Your fallout shelter under Meridian Tower held. Walk its rooms, scavenge the dead city building by building, survive radiation, storms and the things in the dark, then rebuild the tower floor by floor into a home.</p>
   <div class="btns"><button class="big primary" id="contBtn" type="button" hidden>Continue</button><button class="big" id="newBtn" type="button">New game</button></div>
-  <div class="keys" id="keys">Mouse look · WASD move · Shift run · Click shoot · R reload · Q swap · Hold E search · F flashlight · Tab pack · M map</div>
+  <div class="keys" id="keys">Mouse look · WASD move · Shift run · E use, enter, search · Click shoot · R reload · Q swap · F flashlight · Tab pack · M map</div>
 </div></div>
 
-<script>if(matchMedia('(pointer:coarse)').matches){document.body.classList.add('touch');document.getElementById('keys').textContent='Left thumb moves · right thumb looks · FIRE shoots · hold USE to search · tap the minimap for the map';}</script>
+<script>if(matchMedia('(pointer:coarse)').matches){document.body.classList.add('touch');document.getElementById('keys').textContent='Left thumb moves · right thumb looks · FIRE shoots · USE opens doors, searches and works benches · tap the minimap for the map';}</script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="js/core.js"></script>
 <script src="js/world.js"></script>
 <script src="js/audio.js"></script>
 <script src="js/actors.js"></script>
+<script src="js/rooms.js"></script>
+<script src="js/interior.js"></script>
 <script src="js/game.js"></script>
 </body>
 </html>

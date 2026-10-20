@@ -113,6 +113,14 @@ function addLoot(x,z,type,y=0,extra){if(towerDist(x,z)<26&&type!=='bunker')retur
 // a reachable spot on the sidewalk band around a block
 function edgePos(cx,cz){const s=BUILD/2+2.4,t=R(-s+2,s-2),f=(rng()*4)|0;return f===0?[cx+t,cz+s]:f===1?[cx+t,cz-s]:f===2?[cx+s,cz+t]:[cx-s,cz+t];}
 function addFire(x,y,z,s=1){fires.push({x,y,z,s});}
+// walk-in doors: p is the spot just outside the door, n the outward direction
+const doors=UD.doors=[];
+const FN=[[0,1],[0,-1],[1,0],[-1,0]];
+// blast level without touching the seeded rng (so adding doors never reshuffles the city)
+function blv(x,z){const d=gzDist(x,z);return d<RIM+10?0:d<235?1:d<400?2:d<560?3:4;}
+const dhash=(x,z,k=0)=>UD.hash(Math.round(x*7)+k*131,Math.round(z*7)-k*71);
+function addDoor(x,z,nx,nz,tpl,name,extra){const id=tpl+'_'+Math.round(x)+'_'+Math.round(z);if(doors.some(d=>d.id===id))return;
+  doors.push({id,x,z,nx,nz,tpl,name:name||null,tier:UD.tierAt(x,z),...extra});}
 
 /* ======================= districts + landmarks ======================= */
 function district(i,j){
@@ -130,7 +138,7 @@ const LMNAME={home:'Meridian Tower',church:'St. Brigid Church',clocktower:'Old C
   radiomast:'Radio Mast',ferris:'Pier Park Wheel',monument:'Founders Monument',library:'Public Library',hospital:'St. Jude Hospital',market:'MegaMart',heli:'Downed Gunship'};
 const FOCUS={church:'cloth · food',clocktower:'scrap · parts',stadium:'ammo · raider stronghold',gasstation:'fuel',theater:'cloth · scrap',watertower:'water · parts',radiomast:'electronics · parts',
   ferris:'scrap · food',monument:'scrap',library:'cloth · parts',hospital:'meds · rad-away',market:'food · water · cloth',heli:'ammo · weapon parts',gz:'rare tech · lethal radiation',
-  ironworks:'scrap · fuel',checkpoint:'ammo · meds',bunker:'sealed cache · needs a pry bar',camp:'raider loot',highway:'scrap'};
+  ironworks:'scrap · fuel',checkpoint:'ammo · meds',bunker:'walk-in vault · armory, pantry · needs a pry bar',camp:'raider loot',highway:'scrap'};
 for(const [k,i,j] of LM){lmAt[i+','+j]=k;lmName[i+','+j]=LMNAME[k];}
 lmName['5,-9']='Shattered Chapel';lmName['6,3']='Eastside Fuel';
 
@@ -169,7 +177,7 @@ function sign(x,y,z,face,w,fallen){
   else mg('sign',x,z).add(g,M(x,y,z,R(-.06,.06),ry,rng()<.3?R(-.35,.35):R(-.03,.03)),W);
 }
 function faceOffset(face,x,z,w,d,o){return face===0?[x,z+d/2+o]:face===1?[x,z-d/2-o]:face===2?[x+w/2+o,z]:[x-w/2-o,z];}
-function shop(x,z,w,d,h,face,mat,col){
+function shop(x,z,w,d,h,face,mat,col,door){
   const b=blast(x,z);if(!b.lvl)return;
   if(b.lvl===1){const hh=R(.8,2.8);mg(mat,x,z).add(boxUV(w,hh,d,4,3.6,true),M(x,hh/2+.25,z),col);debris(x,z,w,d,6);addCollider(x-w/2,x+w/2,z-d/2,z+d/2,hh+.25);
     if(rng()<.3){const [sx,sz]=faceOffset(face,x,z,w,d,1.5);sign(sx,0,sz,face,Math.min(face<2?w:d,10)*.8,true);}return;}
@@ -183,9 +191,11 @@ function shop(x,z,w,d,h,face,mat,col){
   if(rng()<.85){if(fell){const [gx,gz]=faceOffset(face,x,z,w,d,1.6);sign(gx,0,gz,face,Math.min(along?w:d,10)*.8,true);}else sign(sx,Math.min(h-.6,4.3),sz,face,Math.min(along?w:d,10)*.85);}
   mg('concrete',x,z).add(boxUV(w+.4,.5,d+.4,4,4,true),M(x,h+.5,z),tint(0x9a9288));
   if(b.lvl<=2)debris(x,z,w,d,4);
+  if(door!==false){const hs=dhash(x,z,1),tpl=typeof door==='string'?door:hs<.3?['grocery','pharmacy','diner','hardware','pawn'][Math.min(4,Math.floor(hs/.3*5))]:null;
+    if(tpl){const [px,pz]=faceOffset(face,x,z,w,d,1.1);addDoor(px,pz,FN[face][0],FN[face][1],tpl,typeof door==='string'?shop.name_:null);}}
   addCollider(x-w/2,x+w/2,z-d/2,z+d/2,h+.5);
 }
-function tower(x,z,w,d,h,col,mat){
+function tower(x,z,w,d,h,col,mat,noDoor){
   const b=blast(x,z);
   if(b.lvl===0){rubbleField(x,z,w,d);return;}
   if(b.lvl===1){const st=Math.max(2.5,h*R(.06,.16));mg(mat,x,z).add(boxUV(w,st,d,4,3.6,true),M(x,st/2+.25,z),col.clone().multiplyScalar(.6));
@@ -202,7 +212,9 @@ function tower(x,z,w,d,h,col,mat){
   damageTop(mat,x,base+.25,z,w,d,h-base,col,-Math.sin(rz)*base,Math.sin(rx)*base);
   if(b.lvl===2&&full>30&&rng()<.5)skeleton(x-Math.sin(rz)*base,z+Math.sin(rx)*base,w*.9,d*.9,base+.25,base+(full-h)*R(.2,.5));
   holes(x,z,w,d,base,(rng()*(b.lvl===2?8:5))|0);
+  let made=!!noDoor;
   for(const face of[0,2]){if(rng()<.6){const [fx,fz]=faceOffset(face,x,z,w,d,.08),along=face<2;
+    if(!made&&dhash(x,z,face+2)<.4){made=true;const [px,pz]=faceOffset(face,x,z,w,d,1.1);addDoor(px,pz,FN[face][0],FN[face][1],'office');}
     mg('dark',x,z).add(new THREE.BoxGeometry(along?w*.9:.14,3,along?.14:d*.9),M(fx,1.75,fz),W);
     const [sx,sz]=faceOffset(face,x,z,w,d,.16);sign(sx,4.2,sz,face,Math.min(10,(along?w:d)*.6),b.lvl===2&&rng()<.4);}}
   if(b.lvl===2){debris(x,z,w,d,10,1.2);if(rng()<.08)addFire(x+R(-w/3,w/3),.8,z+d/2+1,1);}
@@ -234,6 +246,7 @@ function warehouse(x,z,w,d,col){
   const teeth=Math.max(2,(d/7)|0);for(let k=0;k<teeth;k++){const g=new THREE.CylinderGeometry(.01,1,1,3,1);g.rotateZ(PI/2);
     if(rng()<(b.lvl===2?.4:.85))mg('corr',x,z).add(g,M(x,h+1.6+.25,z-d/2+(k+.5)*d/teeth,0,0,0,new THREE.Vector3(3.2,w*.98,d/teeth*.55)),col);}
   for(let k=0;k<3;k++)mg('dark',x,z).add(new THREE.BoxGeometry(4,4.4,.12),M(x-w/2+(k+1)*w/4,2.45,z+d/2+.06),W);
+  if(dhash(x,z,5)<.4)addDoor(x-w/4,z+d/2+1.2,0,1,'warehouse');
   if(rng()<.5){const r=R(1,1.8),hh=R(14,26)*(b.lvl===2?R(.4,.8):1);mg('brick',x,z).add(new THREE.CylinderGeometry(r*.8,r,hh,10),M(x+w*.35,hh/2,z-d*.3),W);}
   holes(x,z,w,d,h,(rng()*(b.lvl===2?6:3))|0);addCollider(x-w/2,x+w/2,z-d/2,z+d/2,h+3);
 }
@@ -257,7 +270,7 @@ function landmark(kind,cx,cz,i,j){
     mg('concrete',cx,cz).add(boxUV(7,24,7,4,4,true),M(cx,12.25,cz+15),col);mg('plain',cx,cz).add(new THREE.ConeGeometry(4.6,12,4),M(cx,30.25,cz+15,.05,PI/4,.04),C(0x3b3330));
     mg('metal',cx,cz).add(new THREE.BoxGeometry(.4,3.4,.4),M(cx+.6,37.9,cz+15,0,0,.25),C(0x9a8a6a));mg('metal',cx,cz).add(new THREE.BoxGeometry(1.8,.4,.4),M(cx+.9,38.6,cz+15,0,0,.25),C(0x9a8a6a));
     mg('dark',cx,cz).add(new THREE.CircleGeometry(2.2,16),M(cx,9,cz-13.06,0,PI,0),W);
-    addCollider(cx-7,cx+7,cz-13,cz+13,12);addCollider(cx-3.5,cx+3.5,cz+11.5,cz+18.5,24);return;}
+    addCollider(cx-7,cx+7,cz-13,cz+13,12);addCollider(cx-3.5,cx+3.5,cz+11.5,cz+18.5,24);addDoor(cx,cz-14.2,0,-1,'church',lmName[i+','+j]);return;}
   if(kind==='clocktower'){const col=tint(0xa89a84),[rx,rz]=leanOf(cx,cz,b.d).map(v=>v*1.6);mg('concrete',cx,cz).add(boxUV(9,52,9,4,4,true),Mbase(cx,.25,cz,52,rx,rz),col);
     const tx=cx-Math.sin(rz)*42,tz=cz+Math.sin(rx)*42;
     for(let f=0;f<4;f++){const a=f*PI/2;mg('dark',cx,cz).add(new THREE.CircleGeometry(3,24),M(tx+Math.sin(a)*4.56,42,tz+Math.cos(a)*4.56,0,a,0),W);}
@@ -273,11 +286,11 @@ function landmark(kind,cx,cz,i,j){
   if(kind==='gasstation'){const col=C(0xe8e3d8);for(const s of[[-1,-1],[1,-1],[-1,1],[1,1]])mg('metal',cx,cz).add(new THREE.BoxGeometry(.5,5,.5),M(cx+s[0]*6,2.75,cz+s[1]*4,0,0,s[0]===1&&s[1]===1?.3:0),C(0x9a9a9a));
     mg('plain',cx,cz).add(new THREE.BoxGeometry(16,.8,12),M(cx,5.4,cz,.06,0,R(-.12,.12)),C(0x8a2a22));
     for(const s of[-3,3])mg('plain',cx,cz).add(new THREE.BoxGeometry(.9,1.7,.6),M(cx+s,1.1,cz),C(0xd8d2c4));
-    shop(cx,cz+12,12,7,4,1,'plaster',tint(0xe6dfd2));
+    shop.name_=lmName[i+','+j];shop(cx,cz+12,12,7,4,1,'plaster',tint(0xe6dfd2),'gasshop');
     mg('metal',cx,cz).add(new THREE.BoxGeometry(.4,9,.4),M(cx-9,4.75,cz-8),C(0x777777));
     const g=new THREE.PlaneGeometry(5,3);const uv=g.attributes.uv;const idx=27;for(let q=0;q<uv.count;q++)uv.setXY(q,(idx%4)/4+uv.getX(q)*.25,1-(((idx/4)|0)+1)/8+uv.getY(q)*.125);
     mg('sign',cx,cz).add(g,M(cx-9,9.5,cz-7.8,0,0,.12),W);addCollider(cx-3.5,cx+3.5,cz-.4,cz+.4,2);return;}
-  if(kind==='theater'){const col=tint(0x7a3b30);tower(cx,cz+4,26,18,R(14,20),col,'brick');
+  if(kind==='theater'){const col=tint(0x7a3b30);tower(cx,cz+4,26,18,R(14,20),col,'brick',true);addDoor(cx,cz-6.2,0,-1,'theater',lmName[i+','+j]);
     mg('plain',cx,cz).add(new THREE.BoxGeometry(16,3,4),M(cx,6,cz-7.5,0,0,.08),C(0x1b1b1b));
     const g=new THREE.PlaneGeometry(14,2.6);const uv=g.attributes.uv;const idx=9;for(let q=0;q<uv.count;q++)uv.setXY(q,(idx%4)/4+uv.getX(q)*.25,1-(((idx/4)|0)+1)/8+uv.getY(q)*.125);
     mg('sign',cx,cz).add(g,M(cx,6,cz-9.55,0,PI,.08),W);return;}
@@ -300,18 +313,18 @@ function landmark(kind,cx,cz,i,j){
   if(kind==='library'){const col=tint(0xd9d0bf);mg('concrete',cx,cz).add(boxUV(26,12,18,4,4,true),M(cx,6.25,cz),col);
     for(let k=0;k<8;k++)if(rng()<.75)mg('concrete',cx,cz).add(new THREE.CylinderGeometry(.7,.8,10,10),M(cx-10.5+k*3,5.25,cz-10.5),col);else debris(cx-10.5+k*3,cz-11,1,1,3);
     const g=new THREE.CylinderGeometry(.01,1,1,3,1);g.rotateZ(PI/2);g.rotateY(PI/2);mg('concrete',cx,cz).add(g,M(cx,13.6,cz-10,0,0,.04,new THREE.Vector3(26,3.2,3)),col);
-    mg('concrete',cx,cz).add(boxUV(26,1,4,4,4,true),M(cx,11.3,cz-10.5),col);holes(cx,cz,26,18,12,3);addCollider(cx-13,cx+13,cz-9,cz+9,12);return;}
+    mg('concrete',cx,cz).add(boxUV(26,1,4,4,4,true),M(cx,11.3,cz-10.5),col);holes(cx,cz,26,18,12,3);addCollider(cx-13,cx+13,cz-9,cz+9,12);addDoor(cx,cz-10.2,0,-1,'library',lmName[i+','+j]);return;}
   if(kind==='hospital'){const col=tint(0xd8d4cc);mg('office',cx,cz).add(boxUV(28,22,16,4,3.6,true),M(cx,11.25,cz-4),col);mg('office',cx,cz).add(boxUV(12,9,12,4,3.6,true),M(cx-6,4.75,cz+10),col);
     damageTop('office',cx,22.25,cz-4,28,16,4,col);holes(cx,cz-4,28,16,22,5);
     mg('plain',cx,cz).add(new THREE.BoxGeometry(4,1,.2),M(cx+4,18,cz+4.12),C(0xb02a22));mg('plain',cx,cz).add(new THREE.BoxGeometry(1,4,.2),M(cx+4,18,cz+4.12),C(0xb02a22));
     for(let k=0;k<3;k++)cars.push([cx+8+k*3,cz+12,PI/2+R(-.2,.2),false,rng()<.4,1]);
-    addCollider(cx-14,cx+14,cz-12,cz+4,22);addCollider(cx-12,cx,cz+4,cz+16,9);return;}
+    addCollider(cx-14,cx+14,cz-12,cz+4,22);addCollider(cx-12,cx,cz+4,cz+16,9);addDoor(cx+6,cz+5.2,0,1,'hospital',lmName[i+','+j]);return;}
   if(kind==='market'){const col=tint(0xc8c0b0);mg('concrete',cx,cz).add(boxUV(30,8,22,4,4,true),M(cx,4.25,cz-4),col);
     mg('dark',cx,cz).add(new THREE.BoxGeometry(18,3,.15),M(cx,1.75,cz+7.08),W);
     const g=new THREE.PlaneGeometry(14,3.5);const uv=g.attributes.uv;const idx=24;for(let q=0;q<uv.count;q++)uv.setXY(q,(idx%4)/4+uv.getX(q)*.25,1-(((idx/4)|0)+1)/8+uv.getY(q)*.125);
     mg('sign',cx,cz).add(g,M(cx,6.6,cz+7.12,0,0,-.06),W);damageTop('concrete',cx,8.25,cz-4,30,22,2,col);
     for(let k=0;k<10;k++)cars.push([cx+R(-14,14),cz+R(10,16),rng()*6,rng()<.06,rng()<.5,rng()<.3?1:0]);
-    addCollider(cx-15,cx+15,cz-15,cz+7,8.25);return;}
+    addCollider(cx-15,cx+15,cz-15,cz+7,8.25);addDoor(cx,cz+8.2,0,1,'market',lmName[i+','+j]);return;}
 }
 function gunship(cx,cz){const col=C(0x3d4636);
   mg('metal',cx,cz).add(new THREE.CylinderGeometry(1.6,1.4,9,10),M(cx,1.6,cz,PI/2,.4,.35),col);
@@ -376,6 +389,7 @@ for(let i=-N;i<N;i++)for(let j=-N;j<N;j++){
   }else if(dist==='residential'){
     for(const sx of[-1,0,1])for(const sz of[-1,1]){if(rng()<.12)continue;
       const w=R(7,10),d=R(7,9),x=cx+sx*10.5,z=cz+sz*9;house(x,z,w,d,pick(houseCols),pick(roofCols),rng()<.3);
+      if(sz===1&&blv(x,z)>=2){const hs=dhash(x,z,3);if(hs<.2)addDoor(x,z+d/2+1.1,0,1,hs<.1?'houseA':'houseB');}
       if(rng()<.5)trees.push([x+R(-4,4),z+sz*7,R(.7,1.3),b.lvl>=4&&rng()<.35]);
       if(rng()<.4)cars.push([x+R(-3,3),z+sz*6.5,rng()<.5?0:PI/2,rng()<(b.lvl<=1?.4:.05),b.lvl<=2||rng()<.25,rng()<.3?1:0]);}
     for(const sz of[-1,1])for(let k=-14;k<=14;k+=2)if(rng()<(b.lvl<=2?.3:.65))props.push(['fence',cx+k,cz+sz*16.5,0]);
@@ -478,7 +492,7 @@ for(const [name,x,z] of BUNKERS){
   mg('metal',x,z).add(new THREE.BoxGeometry(.3,.4,1.2),M(x,1,z),C(0x8a7a3a));
   for(const s of[-1,1]){mg('metal',x,z).add(new THREE.CylinderGeometry(.25,.25,2.2,10),M(x+s*3.4,1.4,z+3),C(0x5a5a50));mg('metal',x,z).add(new THREE.CylinderGeometry(.35,.35,.4,10),M(x+s*3.4,2.6,z+3),C(0x3a3a34));}
   mg('metal',x,z).add(new THREE.BoxGeometry(.1,6,.1),M(x-3.6,3,z-3.6),C(0x555555));mg('glow',x,z).add(new THREE.SphereGeometry(.25,8,6),M(x-3.6,6.1,z-3.6),W);
-  const s=addLoot(x,z,'bunker',.5,{name});
+  const s=addLoot(x,z,'bunker',.5,{name});addDoor(x,z,0,1,{'Vault Kilo':'vaultKilo','Bunker 7':'vault7','Shelter Delta':'vaultDelta'}[name],name,{hatch:true,hidden:true});
   POIS.push({id:'bunker_'+name,kind:'bunker',name,x,z,focus:FOCUS.bunker,hidden:true,spot:s});}
 // ground zero itself
 POIS.push({id:'gz',kind:'gz',name:'Ground Zero',x:GZ.x,z:GZ.z,focus:FOCUS.gz});
@@ -628,6 +642,9 @@ UD.LOOT_COL=LOOT_COL;
   const beacons=new THREE.Points(g,new THREE.PointsMaterial({size:1.1,map:UD.glowTex,vertexColors:true,transparent:true,depthWrite:false,blending:THREE.AdditiveBlending}));
   beacons.frustumCulled=false;scene.add(beacons);UD.beacons=beacons;
 })();
+{const pos=[];for(const d of doors)pos.push(d.x-d.nx*.9,d.hatch?1.4:2.7,d.z-d.nz*.9);
+ const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));
+ const p=new THREE.Points(g,new THREE.PointsMaterial({size:.9,map:UD.glowTex,color:C(0xffd29a).multiplyScalar(1.6),transparent:true,depthWrite:false,blending:THREE.AdditiveBlending}));p.frustumCulled=false;scene.add(p);}
 UD.setLootVisible=function(s,on){
   if(s.inst){s.inst.mesh.setMatrixAt(s.inst.i,on?s.mat:new THREE.Matrix4().makeScale(0,0,0));s.inst.mesh.instanceMatrix.needsUpdate=true;}
   const p=UD.beacons.geometry.attributes.position;p.setY(s.bi,on?s.by:-999);p.needsUpdate=true;
@@ -668,7 +685,7 @@ for(let i=0;i<fires.length*FP;i++)flife[i]=Math.random();
 const fireGeo=new THREE.BufferGeometry();fireGeo.setAttribute('position',new THREE.BufferAttribute(fpos,3));
 const fireMat=new THREE.PointsMaterial({size:1.5,map:UD.glowTex,color:C(0xff8a2a).multiplyScalar(2.2),transparent:true,depthWrite:false,blending:THREE.AdditiveBlending});
 const firePts=new THREE.Points(fireGeo,fireMat);firePts.frustumCulled=false;scene.add(firePts);
-const fireLights=[];for(let i=0;i<4;i++){const l=new THREE.PointLight(0xff8a3a,0,22,2);scene.add(l);fireLights.push(l);}
+const fireLights=UD.fireLights=[];for(let i=0;i<4;i++){const l=new THREE.PointLight(0xff8a3a,0,22,2);scene.add(l);fireLights.push(l);}
 // smoke plumes: from big fires and from ground zero
 const plumes=[{x:GZ.x,y:4,z:GZ.z,big:true}];
 fires.filter(f=>f.s>=1.2).slice(0,14).forEach(f=>plumes.push({x:f.x,y:f.y+1,z:f.z}));
@@ -689,9 +706,9 @@ UD.animWorld=function(t,dt,cam,wind){
   for(let f=0;f<fires.length;f++){const F=fires[f];for(let k=0;k<FP;k++){const i=f*FP+k;flife[i]+=dt*(1.4+k*.15);if(flife[i]>1)flife[i]-=1;const l=flife[i];
     fpos[i*3]=F.x+Math.sin(k*2.1+t*3)*.25*F.s*(1-l);fpos[i*3+1]=F.y+l*1.6*F.s;fpos[i*3+2]=F.z+Math.cos(k*1.7+t*2.6)*.25*F.s*(1-l);}}
   fireGeo.attributes.position.needsUpdate=true;fireMat.size=1.3+Math.sin(t*11)*.15;
-  lightT-=dt;if(lightT<=0){lightT=.5;const near=fires.map(F=>[F,(F.x-cam.x)**2+(F.z-cam.z)**2]).sort((a,b)=>a[1]-b[1]);
+  if(!UD.inside){lightT-=dt;if(lightT<=0){lightT=.5;const near=fires.map(F=>[F,(F.x-cam.x)**2+(F.z-cam.z)**2]).sort((a,b)=>a[1]-b[1]);
     fireLights.forEach((l,i)=>{const n=near[i];if(n&&n[1]<90*90){l.position.set(n[0].x,n[0].y+1,n[0].z);l.userData.on=1;}else l.userData.on=0;});}
-  fireLights.forEach((l,i)=>{l.intensity=l.userData.on?(1.6+Math.sin(t*13+i*3)*.35+Math.sin(t*7.3+i)*.25)*UD.fireBoost:0;});
+  fireLights.forEach((l,i)=>{l.intensity=l.userData.on?(1.6+Math.sin(t*13+i*3)*.35+Math.sin(t*7.3+i)*.25)*UD.fireBoost:0;});}
   // smoke
   for(let p=1;p<plumes.length;p++){const P=plumes[p];for(let k=0;k<SP;k++){const i=(p-1)*SP+k;smoke.life[i]+=dt*.06;if(smoke.life[i]>1)smoke.life[i]-=1;const l=smoke.life[i];
     smoke.pos[i*3]=P.x+wind.x*l*40+Math.sin(k*3.1+t*.3)*l*4;smoke.pos[i*3+1]=P.y+l*48;smoke.pos[i*3+2]=P.z+wind.z*l*40+Math.cos(k*2.3+t*.25)*l*4;}}

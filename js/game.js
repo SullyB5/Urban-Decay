@@ -4,7 +4,7 @@
 'use strict';
 const UD=window.UD;if(!UD||UD.failed)return;
 const {$,scene,camera,renderer,C,clamp,sstep,lerp,rr,rpick,TOWER,GZ,CRATER,RIM,CELL,ROAD,EXT,N,gzDist,towerDist,M,boxUV,Merger}=UD;
-const A=UD.Actors,S=UD.sfx,PI=Math.PI;
+const A=UD.Actors,S=UD.sfx,In=UD.In,ROOMS=UD.ROOMS,PI=Math.PI;
 const coarse=UD.coarse,reduceMotion=UD.reduceMotion;
 
 /* ======================= definitions ======================= */
@@ -25,10 +25,13 @@ const MODS={
   radio:{name:'Radio Room',cost:{scrap:24,parts:14},power:1,req:'generator',desc:'Finds sealed bunkers and draws survivors to the tower.'},
 };
 const RECIPES=[
-  {id:'boil',at:'bunker',name:'Boil water',cost:{dirty:2,fuel:1},give:{water:2}},
-  {id:'roast',at:'bunker',name:'Roast meat',cost:{meat:1,fuel:1},give:{food:1}},
-  {id:'handload',at:'bunker',name:'Hand-load ammo',cost:{scrap:4,parts:1},give:{ammo:8}},
-  {id:'prybar',at:'bunker',name:'Makeshift pry bar',cost:{scrap:8},gear:'prybar',desc:'Forces open sealed bunker hatches.'},
+  {id:'boil',at:'bunker',field:'stove',name:'Boil water',cost:{dirty:2,fuel:1},give:{water:2}},
+  {id:'roast',at:'bunker',field:'stove',name:'Roast meat',cost:{meat:1,fuel:1},give:{food:1}},
+  {id:'stew',at:'bunker',field:'stove',name:'Wasteland stew',cost:{meat:1,dirty:1,fuel:1},give:{food:2},desc:'A long boil makes the dirty water safe.'},
+  {id:'handload',at:'bunker',field:'bench',name:'Hand-load ammo',cost:{scrap:4,parts:1},give:{ammo:8}},
+  {id:'prybar',at:'bunker',field:'bench',name:'Makeshift pry bar',cost:{scrap:8},gear:'prybar',desc:'Forces open sealed vault hatches.'},
+  {id:'machete',at:'bunker',field:'bench',name:'Rebar machete',cost:{scrap:10,cloth:2},gear:'machete',desc:'Replaces the knife. Twice the bite, longer reach.'},
+  {id:'filter',at:'bunker',field:'bench',name:'Charcoal canteen filter',cost:{cloth:4,scrap:4,parts:1},gear:'filter',desc:'Dirty water stops giving you rads.'},
   {id:'snares',at:'bunker',name:'Snare line',cost:{scrap:6,cloth:4},gear:'snares',desc:'Traps on the lower floors catch 1–2 meat each dawn.'},
   {id:'pack1',at:'bunker',name:'Scrap backpack',cost:{cloth:10,scrap:6},gear:'pack1',desc:'Carry 65 instead of 40.'},
   {id:'coat',at:'bunker',name:'Insulated coat',cost:{cloth:14},gear:'coat',desc:'No cold damage at night.'},
@@ -44,8 +47,11 @@ const RECIPES=[
   {id:'suit',at:'medbay',name:'Rad suit',cost:{cloth:18,parts:6},gear:'suit',desc:'Cuts radiation exposure by 65%.'},
 ];
 const STATION={bunker:'Shelter bench',kitchen:'Kitchen',workshop:'Workshop',medbay:'Medical Room'};
+const FIELD={stove:'Camp stove',bench:'Scrap workbench'};
+const GEARNAME={prybar:'pry bar',coat:'insulated coat',vest:'plate vest',suit:'rad suit',machete:'rebar machete',filter:'canteen filter',shotgun:'scrap shotgun',rifle:'hunting rifle'};
 const WEAP={
   knife:{name:'Combat knife',melee:true,dmg:24,rate:.5,range:2.6},
+  machete:{name:'Rebar machete',melee:true,dmg:48,rate:.55,range:2.9},
   pistol:{name:'Pipe pistol',dmg:26,rate:.3,cap:8,spread:.012,range:90,reload:1.3,pellets:1,snd:'pistol'},
   shotgun:{name:'Scrap shotgun',dmg:14,rate:.85,cap:4,spread:.065,range:30,reload:2.1,pellets:8,snd:'shotgun'},
   rifle:{name:'Hunting rifle',dmg:75,rate:1.05,cap:5,spread:.002,range:170,reload:1.9,pellets:1,snd:'rifle'},
@@ -61,7 +67,13 @@ const LOOT_T={
   tech:{parts:[2,5],scrap:[1,3]},
   car:{scrap:[1,3],fuel:[0,1,.5],cloth:[0,1,.4],food:[0,1,.3],ammo:[0,6,.3],meds:[0,1,.12]},
   bunker:{food:[8,14],water:[8,14],meds:[3,6],radaway:[2,4],ammo:[40,70],parts:[10,18],fuel:[4,8],cloth:[6,10]},
+  cloth:{cloth:[2,4],scrap:[0,1,.4]},
+  fridge:{food:[1,2],meat:[0,2,.4],water:[0,1,.5]},
+  safe:{ammo:[4,12],meds:[0,1,.5],parts:[1,3],radaway:[0,1,.3]},
+  armory:{ammo:[12,26],parts:[1,3]},
+  drawers:{cloth:[0,2],scrap:[0,2],meds:[0,1,.2],ammo:[0,6,.3],food:[0,1,.3]},
 };
+const IN_NAME={food:'shelves',water:'water jugs',medical:'medicine cabinet',military:'ammo crates',scrap:'scrap pile',tech:'electronics',cloth:'wardrobe',fuel:'fuel drums',safe:'safe',fridge:'fridge',armory:'gun rack',drawers:'drawers'};
 const LOOT_NAME={cache:'supply cache',medical:'medical supplies',fuel:'fuel drums',scrap:'scrap pile',military:'military crate',water:'water jugs',food:'food boxes',tech:'electronics',car:'car trunk',bunker:'sealed bunker hatch',drop:'dropped pack'};
 const TIERMUL=[1,1,1.3,1.65,2,2.6];
 const DANGER=['','Low','Moderate','High','Extreme','Lethal'];
@@ -72,20 +84,25 @@ const SAVE_KEY='urbanDecay.save.v2';
 const zero=()=>Object.fromEntries(RK.map(k=>[k,0]));
 function newState(){return{v:2,t:7.2,hp:100,food:85,water:85,rads:0,sta:100,
   stash:{food:5,meat:0,water:5,dirty:4,meds:2,radaway:0,ammo:24,fuel:3,scrap:14,parts:2,cloth:4},pack:zero(),
-  floors:[],pop:1,gear:{},weapon:'pistol',mag:{pistol:8,shotgun:0,rifle:0},lootGot:{},route:null,
-  stormAt:24+14+Math.floor(rr(0,8)),stormEnd:0,fuelAcc:0,farmAcc:0,rainAcc:0,intro:true,inBase:true,radioFound:false,kills:0,trips:0,deepest:1,lastRaid:0};}
+  floors:[],pop:1,gear:{},weapon:'pistol',mag:{pistol:8,shotgun:0,rifle:0},lootGot:{},route:null,loc:{id:'tower',fl:-1},ins:{},opened:{},
+  stormAt:24+14+Math.floor(rr(0,8)),stormEnd:0,fuelAcc:0,farmAcc:0,rainAcc:0,intro:true,inBase:false,radioFound:false,kills:0,trips:0,deepest:1,lastRaid:0};}
 let G=newState();
 UD.G=G;
 function hasSave(){try{return!!localStorage.getItem(SAVE_KEY);}catch(e){return false;}}
 function save(){try{localStorage.setItem(SAVE_KEY,JSON.stringify(G));}catch(e){}}
-function load(){try{const s=JSON.parse(localStorage.getItem(SAVE_KEY));if(s&&s.v===2){G=Object.assign(newState(),s);G.stash=Object.assign(zero(),s.stash);G.pack=Object.assign(zero(),s.pack);UD.G=G;return true;}}catch(e){}return false;}
+function load(){try{const s=JSON.parse(localStorage.getItem(SAVE_KEY));if(s&&s.v===2){G=Object.assign(newState(),s);G.stash=Object.assign(zero(),s.stash);G.pack=Object.assign(zero(),s.pack);
+  if(!('loc' in s))G.loc=s.inBase?{id:'tower',fl:-1}:null;G.inBase=false;G.ins=G.ins||{};G.opened=G.opened||{};UD.G=G;return true;}}catch(e){}return false;}
 const day=()=>Math.floor(G.t/24)+1,tod=()=>G.t%24;
 const count=m=>G.floors.filter(f=>f===m).length,built=m=>count(m)>0;
 const stormActive=()=>G.t>=G.stormAt&&G.t<G.stormEnd;
 const capOf=k=>(k==='ammo'?300:60)+count('storage')*(k==='ammo'?240:80);
 const packCap=()=>G.gear.pack2?100:G.gear.pack1?65:40;
 const packLoad=()=>RK.reduce((s,k)=>s+G.pack[k]*RW[k],0);
-const owned=()=>['knife','pistol',...(G.gear.shotgun?['shotgun']:[]),...(G.gear.rifle?['rifle']:[])];
+const owned=()=>[G.gear.machete?'machete':'knife','pistol',...(G.gear.shotgun?['shotgun']:[]),...(G.gear.rifle?['rifle']:[])];
+const inside=()=>!!In.cur;
+const atHome=()=>!!(G.loc&&G.loc.id==='tower'&&In.cur);
+const insState=id=>G.ins[id]||(G.ins[id]={l:{},clr:0});
+const esc=t=>String(t).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})[c]);
 const roofY=()=>.25+(G.floors.length+1)*TOWER.fh;
 const popCap=()=>2+3*count('quarters');
 function powerState(){const nG=count('generator'),nS=count('solar'),daylight=tod()>7&&tod()<18&&!stormActive();
@@ -139,6 +156,10 @@ function applyTime(){
   towerWall.emissiveIntensity=.15+lit*1.6;UD.fireBoost=.4+.6*night;
   renderer.toneMappingExposure=1.02+.3*night;
   for(const m of UD.smokeMats)m.color.setRGB(.06+.12*dayF,.055+.11*dayF,.05+.1*dayF);
+  UD.winMat.emissive.copy(_c2).multiplyScalar(.75+lightning*.8);
+  if(UD.inside&&In.cur){const th=In.cur.th;sun.intensity=0;sun.castShadow=false;moonLight.intensity=0;
+    hemi.intensity=th.amb+lightning*.3;hemi.color.setHex(0xfff0dc);hemi.groundColor.setRGB(.09,.08,.07);
+    fog.density=.016;fog.color.setRGB(.03,.026,.022);scene.background=fog.color;renderer.toneMappingExposure=1.08;}
 }
 function ambientTemp(){const td=tod();const day=Math.max(0,Math.sin(PI*(td-6)/14));return Math.round(-4+46*Math.pow(day,1.1)-stormMix*9);}
 
@@ -220,6 +241,7 @@ const vm=new THREE.Group();camera.add(vm);vm.scale.setScalar(.62);
 const VM={};
 {const mk=(parts)=>{const g=new THREE.Group();for(const [geo,col,pos,rot] of parts){const m=new THREE.Mesh(geo,new THREE.MeshStandardMaterial({color:C(col),roughness:.5,metalness:.5}));m.position.set(...pos);if(rot)m.rotation.set(...rot);g.add(m);}g.visible=false;vm.add(g);return g;};
  VM.knife=mk([[new THREE.BoxGeometry(.03,.025,.3),0xb8b8b8,[0,.02,-.2]],[new THREE.BoxGeometry(.045,.05,.14),0x2a1e16,[0,0,0]]]);
+ VM.machete=mk([[new THREE.BoxGeometry(.035,.09,.46),0x9a9a94,[0,.03,-.28]],[new THREE.BoxGeometry(.05,.06,.16),0x3a2a1e,[0,0,0]],[new THREE.BoxGeometry(.04,.02,.4),0x6a3a22,[0,.08,-.26]]]);
  VM.pistol=mk([[new THREE.BoxGeometry(.07,.1,.3),0x2a2a28,[0,.02,-.12]],[new THREE.BoxGeometry(.06,.16,.08),0x3a2a1e,[0,-.08,-.02],[.25,0,0]],[new THREE.CylinderGeometry(.018,.018,.22,8),0x4a4a46,[0,.04,-.32],[PI/2,0,0]]]);
  VM.shotgun=mk([[new THREE.BoxGeometry(.08,.1,.5),0x3a2a1e,[0,0,-.1]],[new THREE.CylinderGeometry(.03,.03,.6,8),0x2a2a28,[0,.05,-.5],[PI/2,0,0]],[new THREE.CylinderGeometry(.03,.03,.5,8),0x2a2a28,[0,-.01,-.45],[PI/2,0,0]]]);
  VM.rifle=mk([[new THREE.BoxGeometry(.06,.09,.6),0x4a3220,[0,0,-.1]],[new THREE.CylinderGeometry(.016,.016,.7,8),0x222222,[0,.04,-.6],[PI/2,0,0]],[new THREE.CylinderGeometry(.03,.03,.28,10),0x151515,[0,.11,-.2],[PI/2,0,0]]]);}
@@ -242,25 +264,57 @@ function addToPack(items){const got={},left={};let room=packCap()-packLoad();
   return{got,left};}
 const drops=[];
 const dropMat=new THREE.MeshStandardMaterial({color:C(0x4a3a2a),roughness:1});
-function dropLoot(x,z,items){const m=new THREE.Mesh(new THREE.DodecahedronGeometry(.35,0),dropMat);m.position.set(x,UD.groundAt(x,z)+.3,z);m.scale.y=.7;m.castShadow=true;scene.add(m);
+function dropLoot(x,z,items,y,ins){const m=new THREE.Mesh(new THREE.DodecahedronGeometry(.35,0),dropMat);m.position.set(x,(y!==undefined?y:UD.groundAt(x,z))+.3,z);m.scale.y=.7;m.castShadow=true;scene.add(m);
   const b=new THREE.Sprite(new THREE.SpriteMaterial({map:UD.glowTex,color:C(0xff9a5a),transparent:true,depthWrite:false,blending:THREE.AdditiveBlending}));b.scale.setScalar(.9);b.position.set(x,m.position.y+1.1,z);scene.add(b);
-  drops.push({x,z,items,m,b,t:0});}
+  drops.push({x,z,items,m,b,t:0,inside:!!ins});}
+function removeInsideDrops(){for(const d of[...drops])if(d.inside)removeDrop(d);}
 function removeDrop(d){scene.remove(d.m);scene.remove(d.b);drops.splice(drops.indexOf(d),1);}
 function restoreLoot(){for(const [i,dv] of Object.entries(G.lootGot)){const s=UD.loot[+i];if(!s)continue;if(dv<=day()){delete G.lootGot[i];s.got=false;UD.setLootVisible(s,true);}else{s.got=true;UD.setLootVisible(s,false);}}}
 
 /* ======================= interaction ======================= */
 let target=null,tgtT=0;
+// instant actions (doors, stairs, benches) fire on the press itself; searches still need a hold
+function useNow(){if(G.inBase||G.dead)return;const nt=findTarget();if(nt&&!nt.dur){target=nt;doInteract();target=null;tgtT=0;useHeld=false;}else{target=nt||target;useHeld=true;}}
+const doorName=d=>d.name||(ROOMS.P[d.tpl]||{}).name||'building';
 function findTarget(){
   if(G.inBase)return null;
-  const px=player.x,pz=player.z;
+  const px=player.x,pz=player.z,ins=inside();
+  for(const d of drops)if(d.inside===ins&&Math.hypot(d.x-px,d.z-pz)<2.4)return{kind:'drop',d,label:'Take '+LOOT_NAME.drop,dur:.5};
+  if(ins)return findInside(px,pz);
   if(Math.hypot(px-TOWER.door.x,pz-TOWER.door.z)<4.5)return{kind:'door',label:'Enter Meridian Tower',dur:0};
-  for(const d of drops)if(Math.hypot(d.x-px,d.z-pz)<2.4)return{kind:'drop',d,label:'Take '+LOOT_NAME.drop,dur:.5};
-  let best=null,bd=2.7;for(const s of UD.loot){if(s.got)continue;const dd=Math.hypot(s.x-px,s.z-pz);if(dd<bd){bd=dd;best=s;}}
-  if(best){if(best.type==='bunker'&&!G.gear.prybar)return{kind:'locked',label:'Sealed hatch · craft a pry bar first',dur:0};
-    return{kind:'loot',s:best,label:'Search '+(best.type==='bunker'?best.name:LOOT_NAME[best.type]),dur:best.type==='bunker'?3:best.type==='car'?1.4:1.1};}
+  let bdr=null,bdd=1e9;for(const dr of UD.doors){const dd=Math.hypot(dr.x-px,dr.z-pz);if(dd<(dr.hatch?2.8:2.3)&&dd<bdd){bdd=dd;bdr=dr;}}
+  if(bdr){if(bdr.hatch&&!G.opened[bdr.id]){if(!G.gear.prybar)return{kind:'locked',label:'Sealed hatch · craft a pry bar first',dur:0};return{kind:'force',dr:bdr,label:'Force open '+doorName(bdr),dur:3};}
+    return{kind:'enter',dr:bdr,label:(bdr.hatch?'Climb down into ':'Enter ')+doorName(bdr),dur:0};}
+  let best=null,bd=2.7;for(const s of UD.loot){if(s.got||s.type==='bunker')continue;const dd=Math.hypot(s.x-px,s.z-pz);if(dd<bd){bd=dd;best=s;}}
+  if(best)return{kind:'loot',s:best,label:'Search '+LOOT_NAME[best.type],dur:best.type==='car'?1.4:1.1};
   return null;}
+const ST_LABEL={bench:'Use the shelter bench',workshop:'Use the workshop bench',kitchen:'Cook at the kitchen range',medbay:'Use the medical station',locker:'Open the stash lockers',
+  plan:'Tower plans · build floors',purifier:'Drink from the purifier',power:'Check the power',farm:'Check the crops',defense:'Turret console',fbench:'Use the scrap workbench'};
+function findInside(px,pz){const I=In.cur;let best=null,bs=1e9;const hx=-Math.sin(yaw),hz=-Math.cos(yaw);
+  for(const o of I.objs){const dx=o.x-px,dz=o.z-pz,d=Math.hypot(dx,dz);if(d>2.3)continue;const fd=(dx*hx+dz*hz)/(d||1);if(fd<-.25&&d>1.3)continue;const s=d-fd*.9;if(s<bs){bs=s;best=o;}}
+  if(!best)return null;const o=best;
+  if(o.kind==='loot'){const v=insState(I.id).l[o.i+','+o.j];if(v&&v>day())return{kind:'none',label:IN_NAME[o.loot]+' · searched',dur:0};
+    return{kind:'iloot',o,label:'Search the '+IN_NAME[o.loot],dur:o.loot==='safe'?2:1.1};}
+  if(o.kind==='note')return{kind:'note',o,label:'Read the note',dur:0};
+  if(o.kind==='npc')return{kind:'npc',o,label:'Talk to the survivor',dur:0};
+  if(o.kind==='exit')return{kind:'exit',label:G.loc.id==='tower'?'Step out into the street':'Leave · back to the street',dur:0};
+  const st=o.st;
+  if(st==='up')return{kind:'st',o,label:'Climb to '+floorLabel(G.loc.fl+1),dur:0};
+  if(st==='down')return{kind:'st',o,label:'Go down to '+floorLabel(G.loc.fl-1),dur:0};
+  if(st==='bed')return{kind:'st',o,label:canSleep()?'Sleep until dawn':'Bed · sleep after 19:00',dur:0};
+  if(st==='stove')return{kind:'st',o,label:G.loc.id==='tower'?'Use the camp stove':'Cook on the camp stove',dur:0};
+  if(st==='radio')return{kind:'st',o,label:G.loc.id==='tower'?'Radio · plan an expedition':'Tune the radio set',dur:0};
+  return{kind:'st',o,label:ST_LABEL[st]||st,dur:0};}
 function doInteract(){if(!target)return;
-  if(target.kind==='door'){enterBase();return;}
+  if(target.kind==='none')return;
+  if(target.kind==='door'){enterTower();return;}
+  if(target.kind==='enter'){enterDoor(target.dr);return;}
+  if(target.kind==='force'){G.opened[target.dr.id]=true;S.build();toast(doorName(target.dr)+' · hatch forced open',true);enterDoor(target.dr);return;}
+  if(target.kind==='exit'){exitPlace();return;}
+  if(target.kind==='iloot'){searchInside(target.o);return;}
+  if(target.kind==='note'){showNote(target.o);return;}
+  if(target.kind==='npc'){S.click();toast('“'+rpick(ROOMS.NPC_LINES)+'”',true);return;}
+  if(target.kind==='st'){station(target.o);return;}
   if(target.kind==='locked'){S.deny();toast('Needs a pry bar · craft one at the shelter bench');return;}
   if(target.kind==='drop'){const r=addToPack(target.d.items);finishLoot(r);removeDrop(target.d);return;}
   if(target.kind==='loot'){const s=target.s,i=UD.loot.indexOf(s);s.got=true;UD.setLootVisible(s,false);
@@ -268,13 +322,19 @@ function doInteract(){if(!target)return;
     const items=roll(s.type,s.tier);const r=addToPack(items);finishLoot(r);
     if(s.type==='bunker')toast(s.name+' cracked open · '+fmt(r.got),true);}
 }
-function finishLoot(r){S.pickup();const g=fmt(r.got);const l=Object.keys(r.left).length;
-  toast((g||'Nothing you can carry')+(l?' · pack full, left the rest':''),l>0);}
+function finishLoot(r,extra=''){S.pickup();const g=fmt(r.got);const l=Object.keys(r.left).length;
+  toast((g||'Nothing you can carry')+extra+(l?' · pack full, left the rest':''),l>0||!!extra);}
+function searchInside(o){const I=In.cur,st=insState(I.id),key=o.i+','+o.j,vault=!!here.vault;
+  st.l[key]=vault?1e9:day()+2+Math.floor(Math.random()*3);In.hideBeacon(o);
+  const r=addToPack(roll(o.loot,here.tier));let extra='';
+  if(o.loot==='armory'){const want=['shotgun','rifle','vest','suit'].filter(g=>!G.gear[g]);
+    if(want.length&&Math.random()<(vault?1:.35)){const g=want[0];G.gear[g]=true;if(WEAP[g])G.mag[g]=WEAP[g].cap;extra=' · found a '+GEARNAME[g]+'!';S.build();}}
+  finishLoot(r,extra);save();}
 
 /* ======================= combat ======================= */
 const _o=new THREE.Vector3(),_d=new THREE.Vector3(),_f=new THREE.Vector3(),_r=new THREE.Vector3(),_u=new THREE.Vector3(),_end=new THREE.Vector3();
 const actx={
-  hitPlayer(dmg,e){if(G.inBase||G.dead)return;const tier=UD.tierAt(player.x,player.z);hurt(dmg*(1+.12*(tier-1))*(G.gear.vest?.65:1));},
+  hitPlayer(dmg,e){if(G.dead)return;if(G.inBase){if(atHome())return;closePanel();}const tier=inside()?here.tier:UD.tierAt(player.x,player.z);hurt(dmg*(1+.12*(Math.max(1,tier)-1))*(G.gear.vest?.65:1));},
   enemyShot(e,d,atTower){const o=new THREE.Vector3(e.x,e.y+1.55,e.z);S.enemyShot(clamp(1-d/90,.1,1));
     if(atTower){A.tracer(o,new THREE.Vector3(TOWER.x+rr(-6,6),rr(1,8),TOWER.z+TOWER.d/2),0xffb060);return;}
     const moving=Math.hypot(vel.x,vel.z)/6;const hit=Math.random()<clamp(.55-d*.008-moving*.18-(stormActive()?.1:0),.08,.6);
@@ -284,12 +344,12 @@ const actx={
   raidSteal(e){const have=RK.filter(k=>G.stash[k]>0&&k!=='ammo');const lost={};for(let i=0;i<2&&have.length;i++){const k=rpick(have);const n=Math.max(1,Math.round(G.stash[k]*.15));G.stash[k]-=n;lost[k]=(lost[k]||0)+n;}
     if(Object.keys(lost).length)toast('Raiders looted the stash · '+Object.entries(lost).map(([k,v])=>`-${v} ${RL[k].toLowerCase()}`).join(' · '),true);if(G.inBase)renderBase();},
   onKill(e){G.kills++;const items={};for(const [k,r] of Object.entries(e.T.drops)){if(!r)continue;const n=r[0]+Math.floor(Math.random()*(r[1]-r[0]+1));if(n>0)items[k]=n;}
-    if(Object.keys(items).length)dropLoot(e.x,e.z,items);S.kill();},
+    if(Object.keys(items).length)dropLoot(e.x,e.z,items,e.inside?e.y:undefined,e.inside);S.kill();},
 };
 function hurt(dmg){if(G.dead)return;G.hp-=dmg;hurtT=.6;S.hurt();if(G.hp<=0)die();}
 function aimDir(spread){camera.getWorldDirection(_f);_r.set(1,0,0).applyQuaternion(camera.quaternion);_u.set(0,1,0).applyQuaternion(camera.quaternion);
   const a=Math.random()*6.283,s=spread*Math.sqrt(Math.random());return _d.copy(_f).addScaledVector(_r,Math.cos(a)*s).addScaledVector(_u,Math.sin(a)*s).normalize();}
-function wallDist(o,d,range){for(let t=1;t<range;t+=1.5){if(UD.solidAt(o.x+d.x*t,o.y+d.y*t,o.z+d.z*t))return t;if(o.y+d.y*t<UD.groundAt(o.x+d.x*t,o.z+d.z*t))return t;}return range;}
+function wallDist(o,d,range){if(inside())return In.ray(o,d,range);for(let t=1;t<range;t+=1.5){if(UD.solidAt(o.x+d.x*t,o.y+d.y*t,o.z+d.z*t))return t;if(o.y+d.y*t<UD.groundAt(o.x+d.x*t,o.z+d.z*t))return t;}return range;}
 function fire(){
   if(fireCd>0||reloadT>0||G.inBase||G.dead)return;
   const W=WEAP[G.weapon];camera.getWorldPosition(_o);
@@ -309,45 +369,111 @@ function swapWeapon(dir=1){const o=owned();let i=o.indexOf(G.weapon);i=(i+dir+o.
 let hitT=0;function hitMark(){hitT=.15;}
 
 /* ======================= tower: enter, leave, build, craft ======================= */
-let baseTab='tower',buildOpen=false,orbitA=0;
-function enterBase(){G.inBase=true;flying=false;vert=0;firing=false;useHeld=false;
+let baseTab='tower',buildOpen=false,pctx={},needReload=false;
+/* ---------- places: the tower's floors and every walk-in building ---------- */
+let here=null; // {name, room, tier, vault, theme, door}
+function floorKind(fl){const n=G.floors.length;return fl===-1?'shelter':fl===0?'lobby':fl<=n?G.floors[fl-1]:'gutted';}
+function floorLabel(fl){const k=floorKind(fl);return fl===-1?'the shelter (B1)':fl===0?'the lobby':k==='gutted'?`floor ${fl} · gutted`:`floor ${fl} · ${MODS[k].name}`;}
+function survivorsOn(fl){const crew=Math.min(G.pop-1,8),order=[0,-1];for(let f=1;f<=G.floors.length;f++)order.push(f);
+  const cap=order.map(f=>(ROOMS.TF[floorKind(f)].join('').match(/:/g)||[]).length),got=order.map(()=>0);let left=crew;
+  while(left>0){let any=false;for(let k=0;k<order.length&&left>0;k++)if(got[k]<cap[k]){got[k]++;left--;any=true;}if(!any)break;}
+  const k=order.indexOf(fl);return k<0?0:got[k];}
+function placeDef(loc){
+  if(loc.id==='tower'){const n=G.floors.length,fl=clamp(loc.fl,-1,Math.min(n+1,TOWER.slots)),kind=floorKind(fl);loc.fl=fl;
+    const canUp=fl<=n&&fl<TOWER.slots;
+    here={name:'Meridian Tower',room:fl===-1?'Fallout Shelter · B1':fl===0?'Lobby':kind==='gutted'?`Floor ${fl} · gutted`:`Floor ${fl} · ${MODS[kind].name}`,tier:0,vault:false};
+    return{id:'tower@'+fl,map:ROOMS.towerMap(kind,fl,canUp),theme:kind==='shelter'?'shelter':kind==='gutted'?'gutted':'tower',seed:fl*97+13,enemies:false,npcs:survivorsOn(fl)};}
+  const dr=UD.doors.find(d=>d.id===loc.id);if(!dr)return null;const P=ROOMS.P[dr.tpl],st=insState(dr.id);
+  here={name:doorName(dr),room:P.vault?'Sealed vault':'Indoors',tier:P.vault?Math.max(4,dr.tier):dr.tier,vault:!!P.vault,theme:P.theme,door:dr};
+  return{id:dr.id,map:P.map,theme:P.theme,seed:Math.floor(UD.hash(Math.round(dr.x),Math.round(dr.z))*1e6),enemies:!st.clr||day()>=st.clr+3};}
+function enterPlace(loc,arrive,keep){
+  const def=placeDef(loc);if(!def){G.loc={id:'tower',fl:-1};return enterPlace(G.loc,'up');}
+  G.loc=loc;flying=false;vert=0;firing=false;useHeld=false;reloadT=0;removeInsideDrops();
+  const I=In.load(def);
+  let spot=arrive&&I.objs.find(o=>arrive==='exit'?o.kind==='exit':o.st===arrive);
+  if(!spot)spot=I.objs.find(o=>o.kind==='exit')||I.objs.find(o=>o.st==='up'||o.st==='down')||I.objs[0];
+  player.set(spot.x+spot.fx*1.9,In.O.y+1.7,spot.z+spot.fz*1.9);yaw=Math.atan2(-spot.fx,-spot.fz);pitch=0;vel.set(0,0,0);groundY=In.O.y;
+  if(keep&&In.passable(...In.cellAt(keep.x,keep.z))){player.x=keep.x;player.z=keep.z;yaw=keep.yaw;pitch=keep.pitch;}
+  const st=insState(def.id);for(const o of I.objs)if(o.kind==='loot'){const v=st.l[o.i+','+o.j];if(v&&v>day())In.hideBeacon(o);}
+  target=null;lastKey='';applyTime();save();return I;}
+function enterTower(){
   const dep={};for(const k of RK){const room=capOf(k)-G.stash[k];const n=Math.min(room,G.pack[k]);if(n>0){G.stash[k]+=n;G.pack[k]-=n;dep[k]=n;}}
-  try{document.exitPointerLock&&document.exitPointerLock();}catch(e){}
-  S.door();const g=fmt(dep);if(g)toast('Stashed '+g.replace(/\+/g,''),true);
-  vm.visible=false;flash.intensity=0;$('base').hidden=false;document.body.classList.add('inbase');baseTab='tower';buildOpen=false;renderBase();save();}
-function leaveBase(){
-  if(packLoad()===0){const want={ammo:40,meds:1,water:2,food:1};for(const [k,v] of Object.entries(want)){const n=Math.min(v,G.stash[k]);if(n>0){G.stash[k]-=n;G.pack[k]+=n;}}}
-  const W=WEAP[G.weapon];if(!W.melee&&G.mag[G.weapon]<W.cap){const n=Math.min(W.cap-G.mag[G.weapon],G.pack.ammo);G.mag[G.weapon]+=n;G.pack.ammo-=n;}
-  G.inBase=false;G.intro=false;G.trips++;$('base').hidden=true;document.body.classList.remove('inbase');vm.visible=true;
-  player.set(TOWER.door.x,1.7,TOWER.door.z+3.5);yaw=PI;pitch=0;vel.set(0,0,0);S.door();save();
-  if(night>.5)toast('Dark out there · F for your flashlight');}
+  enterPlace({id:'tower',fl:0},'exit');S.door();const g=fmt(dep);toast('Meridian Tower'+(g?' · stashed '+g.replace(/\+/g,''):''),true);}
+function enterDoor(dr){enterPlace({id:dr.id},'exit');S.door();
+  const I=In.cur,n=I.enemies.length;toast(here.name+(here.vault?' · sealed for years':'')+(n?' · something moves in the dark':''),true);}
+function exitPlace(){
+  const fromTower=G.loc&&G.loc.id==='tower',dr=here&&here.door;
+  In.unload();removeInsideDrops();G.loc=null;flying=false;
+  if(fromTower||!dr){
+    if(packLoad()===0){const want={ammo:40,meds:1,water:2,food:1};for(const [k,v] of Object.entries(want)){const n=Math.min(v,G.stash[k]);if(n>0){G.stash[k]-=n;G.pack[k]+=n;}}}
+    const W=WEAP[G.weapon];if(!W.melee&&G.mag[G.weapon]<W.cap){const n=Math.min(W.cap-G.mag[G.weapon],G.pack.ammo);G.mag[G.weapon]+=n;G.pack.ammo-=n;}
+    G.intro=false;G.trips++;player.set(TOWER.door.x,1.7,TOWER.door.z+3.5);yaw=PI;}
+  else{player.set(dr.x+dr.nx*.7,UD.groundAt(dr.x,dr.z)+1.7,dr.z+dr.nz*.7);yaw=Math.atan2(-dr.nx,-dr.nz);}
+  groundY=player.y-1.7;pitch=0;vel.set(0,0,0);here=null;target=null;lastKey='';S.door();applyTime();save();
+  if(night>.5)toast('Dark out there · F for your flashlight');else if(stormActive())toast('Toxic storm outside · radiation is up',true);}
+function reloadHere(){if(!G.loc)return;const keep={x:player.x,z:player.z,yaw,pitch};enterPlace(G.loc,null,keep);}
+/* ---------- stations ---------- */
+function station(o){const home=G.loc.id==='tower';
+  switch(o.st){
+    case 'up':S.door();enterPlace({id:'tower',fl:G.loc.fl+1},'down');toast(here.room);return;
+    case 'down':S.door();enterPlace({id:'tower',fl:G.loc.fl-1},'up');toast(here.room);return;
+    case 'bench':return openPanel('craft',{station:'bunker'});
+    case 'stove':return home?openPanel('craft',{station:'bunker'}):openPanel('craft',{field:'stove'});
+    case 'fbench':return home?openPanel('craft',{station:'bunker'}):openPanel('craft',{field:'bench'});
+    case 'kitchen':case 'workshop':case 'medbay':return openPanel('craft',{station:o.st});
+    case 'locker':return openPanel('stash');
+    case 'plan':return openPanel('tower');
+    case 'radio':if(home)return openPanel('exp');
+      if(!G.radioFound){G.radioFound=true;S.build();toast('The set still works · three bunker beacons logged on your map',true);}else{S.click();toast('Static, then a faint loop: Meridian Tower, civil defense, all survivors welcome.',true);}save();return;
+    case 'purifier':if(G.stash.water>0){consume('water');toast('Cold, clean water · '+G.stash.water+' left in the tanks');}else{S.deny();toast('Tanks are dry · the purifier needs power and dirty water');}return;
+    case 'power':{const P=powerState();S.click();toast(`Power ${P.sup} / ${P.dem}`+(count('generator')?` · ${G.stash.fuel} fuel`:'')+(P.ok?' · all floors running':' · short, some floors are dark'),true);return;}
+    case 'farm':S.click();toast(powerState().ok?`Grow lights on · ${count('farm')} farm floor${count('farm')>1?'s':''} turning clean water into food`:'Grow lights dark · no power',true);return;
+    case 'defense':S.click();toast((built('defense')&&powerState().ok?'Turrets armed':'Turrets offline')+` · ${G.stash.ammo} rounds in the stash`+(G.gear.turret2?' · servos fitted':''),true);return;
+    case 'bed':return trySleep();
+  }}
+function trySleep(){if(!canSleep()){S.deny();toast('Too early to sleep · after 19:00');return;}
+  if(In.cur&&In.cur.enemies.some(e=>!e.dead)){S.deny();toast('Not with hostiles in the building');return;}
+  sleep();}
+function openPanel(tab,ctx={}){pctx=ctx;G.inBase=true;firing=false;useHeld=false;try{document.exitPointerLock&&document.exitPointerLock();}catch(e){}
+  baseTab=tab;buildOpen=false;$('base').hidden=false;document.body.classList.add('inbase');vm.visible=false;renderBase();baseBody.scrollTop=0;S.click();}
+function closePanel(){if(!G.inBase)return;G.inBase=false;$('base').hidden=true;document.body.classList.remove('inbase');vm.visible=true;
+  if(needReload){needReload=false;reloadHere();}save();}
 function buildFloor(mod){const n=G.floors.length+1;if(n>TOWER.slots)return;const cost=floorCost(mod,n);if(!afford(cost)){S.deny();return;}
-  pay(cost);G.floors.push(mod);S.build();rebuildTower();toast(`Floor ${n} · ${MODS[mod].name} built`,true);
+  pay(cost);G.floors.push(mod);S.build();rebuildTower();toast(`Floor ${n} · ${MODS[mod].name} built`,true);needReload=true;
   if(mod==='radio'&&!G.radioFound){G.radioFound=true;setTimeout(()=>toast('Radio picked up three bunker beacons · check Expeditions',true),2600);}
   buildOpen=false;renderBase();save();}
 function floorCost(mod,n){const m=1+.2*(n-1);return Object.fromEntries(Object.entries(MODS[mod].cost).map(([k,v])=>[k,Math.ceil(v*m)]));}
 function reqOk(req){return!req||(MODS[req]?built(req):!!G.gear[req]);}
-function craft(id){const r=RECIPES.find(x=>x.id===id);if(!r)return;if(r.at!=='bunker'&&!built(r.at)){S.deny();return;}if(!reqOk(r.req)||(r.gear&&G.gear[r.gear])||!afford(r.cost)){S.deny();return;}
-  if(r.give){for(const [k,v] of Object.entries(r.give))if(G.stash[k]+v>capOf(k)){toast('Stash is full for '+RL[k].toLowerCase());S.deny();return;}}
-  pay(r.cost);if(r.give)for(const [k,v] of Object.entries(r.give))G.stash[k]+=v;if(r.gear){G.gear[r.gear]=true;if(r.gear==='turret2')rebuildTower();}
+const craftHere=r=>pctx.field?r.field===pctx.field:pctx.station===r.at&&(r.at==='bunker'||built(r.at));
+function craft(id){const r=RECIPES.find(x=>x.id===id);if(!r)return;const field=!!pctx.field,src=field?G.pack:G.stash;
+  if(!craftHere(r)||!reqOk(r.req)||(r.gear&&G.gear[r.gear])||!afford(r.cost,src)){S.deny();return;}
+  if(r.give){if(field){const w=k=>RW[k];const after=packLoad()-Object.entries(r.cost).reduce((a,[k,v])=>a+v*w(k),0)+Object.entries(r.give).reduce((a,[k,v])=>a+v*w(k),0);
+      if(after>packCap()+1e-6){toast('Not enough room in your pack');S.deny();return;}}
+    else for(const [k,v] of Object.entries(r.give))if(G.stash[k]+v>capOf(k)){toast('Stash is full for '+RL[k].toLowerCase());S.deny();return;}}
+  pay(r.cost,src);if(r.give)for(const [k,v] of Object.entries(r.give))src[k]+=v;
+  if(r.gear){G.gear[r.gear]=true;if(r.gear==='turret2')rebuildTower();if(r.gear==='machete'&&G.weapon==='knife')G.weapon='machete';}
   S.build();toast(r.name+(r.give?' · '+fmt(r.give):' · ready'));renderBase();save();}
 function consume(k,from){const src=from==='pack'?G.pack:G.stash;if(src[k]<=0){S.deny();return;}
   src[k]--;if(k==='food')G.food=Math.min(100,G.food+32);else if(k==='water')G.water=Math.min(100,G.water+38);
   else if(k==='meat'){G.food=Math.min(100,G.food+20);G.rads+=6;toast('Raw meat · +6 rads');}
-  else if(k==='dirty'){G.water=Math.min(100,G.water+25);G.rads+=8;toast('Dirty water · +8 rads');}
+  else if(k==='dirty'){G.water=Math.min(100,G.water+25);if(G.gear.filter)toast('Filtered through the canteen · no rads');else{G.rads+=8;toast('Dirty water · +8 rads');}}
   else if(k==='meds')G.hp=Math.min(100,G.hp+40);else if(k==='radaway')G.rads=Math.max(0,G.rads-40);
   S.pickup();}
 function canSleep(){const t=tod();return t>=19||t<5;}
 function sleep(){if(!canSleep()){S.deny();return;}
-  const before={...G.stash};const target=G.t+((30-tod())%24||24);let raid=null;
+  const home=atHome(),before={...G.stash};const target=G.t+((30-tod())%24||24);let raid=null;
   while(G.t<target-1e-6){const nextH=Math.floor(G.t)+1;G.t=Math.min(target,nextH);if(G.t===nextH){const r=onHour(nextH,true);if(r)raid=r;}}
-  lastHour=Math.floor(G.t);G.hp=Math.min(100,G.hp+15+8*count('quarters')+(built('medbay')?15:0));
-  toast(`Slept until dawn · day ${day()}`+(raid?' · '+raid:''),true);restoreLoot();renderBase();save();}
+  lastHour=Math.floor(G.t);G.hp=Math.min(100,G.hp+(home?15+8*count('quarters')+(built('medbay')?15:0):8));
+  toast(`Slept until dawn · day ${day()}`+(home?'':' · stiff, but alive')+(raid?' · '+raid:''),true);restoreLoot();if(G.inBase)renderBase();save();}
+/* ---------- notes ---------- */
+function showNote(o){const pool=ROOMS.NOTES[here.vault?'vault':(here.theme||'house')]||ROOMS.NOTES.house;
+  const k=Math.floor(UD.hash(o.i*31+o.j,(In.cur.id.length*17)|0)*pool.length);S.click();
+  $('noteTxt').textContent=pool[k%pool.length];$('noteov').hidden=false;try{document.exitPointerLock();}catch(e){}firing=false;}
 
 /* ======================= hourly + daily simulation ======================= */
 let lastHour=0;
 function onHour(h,asleep){const hod=h%24;let note=null;
-  const home=G.inBase,outsideHeat=!home&&ambientTemp()>36;
+  const home=atHome(),outsideHeat=!inside()&&ambientTemp()>36;
   G.food=clamp(G.food-3.4*(home?.7:1)*(asleep?.6:1),0,100);G.water=clamp(G.water-4.8*(home?.7:1)*(outsideHeat?1.8:1)*(asleep?.6:1),0,100);
   if(home){G.rads=Math.max(0,G.rads-(built('medbay')?6:1.5));if(G.food>15&&G.water>15)G.hp=Math.min(100,G.hp+2+2*Math.min(1,count('quarters'))+(built('medbay')?4:0));}
   const P=powerState();
@@ -361,7 +487,7 @@ function onHour(h,asleep){const hod=h%24;let note=null;
   if(h===G.stormEnd){G.stormAt=h+16+Math.floor(Math.random()*22);if(!asleep)toast('The storm has passed');}
   if(hod===6)note=dawn(asleep)||note;
   if(hod===22){const r=maybeRaid(asleep);if(r)note=r;}
-  if(hod===19&&!asleep&&!G.inBase)toast('Night is falling · cold and ghouls come with it',true);
+  if(hod===19&&!asleep&&!inside())toast('Night is falling · cold and ghouls come with it',true);
   if(G.inBase&&$('base')&&!$('base').hidden)renderBaseSoft();
   save();return note;}
 function dawn(asleep){const msgs=[];const crew=G.pop-1;
@@ -382,27 +508,32 @@ function maybeRaid(asleep){if(day()<3||G.lastRaid===day())return null;if(Math.ra
   A.spawnRaid(n);toast(`Raid · ${n} hostiles converging on the tower`,true);return null;}
 
 /* ======================= death ======================= */
-function die(){if(G.dead)return;G.dead=true;firing=false;try{document.exitPointerLock&&document.exitPointerLock();}catch(e){}
+function die(){if(G.dead)return;closePanel();G.dead=true;firing=false;try{document.exitPointerLock&&document.exitPointerLock();}catch(e){}
   const lost=fmt(G.pack).replace(/\+/g,'');G.pack=zero();
   $('deathTxt').textContent=(G.pop>1?'Survivors found you and dragged you home. ':'You came to on the shelter floor. ')+(lost?'Your pack is gone: '+lost+'.':'');
   $('death').hidden=false;}
 function respawn(){G.dead=false;$('death').hidden=true;G.hp=55;G.rads=Math.max(0,G.rads-30);G.food=Math.max(G.food,40);G.water=Math.max(G.water,40);
   const target=G.t+((30-tod())%24||24);while(G.t<target-1e-6){const nh=Math.floor(G.t)+1;G.t=Math.min(target,nh);if(G.t===nh)onHour(nh,true);}lastHour=Math.floor(G.t);
-  for(const e of[...A.list])if(!e.raid)A.remove(e);enterBase();}
+  for(const e of[...A.list])if(!e.raid&&!e.inside)A.remove(e);enterPlace({id:'tower',fl:-1},'up');S.door();}
 
 /* ======================= base panel UI ======================= */
 const baseBody=$('baseBody');
 function chip(t,cls=''){return`<span class="chip ${cls}">${t}</span>`;}
 function renderHead(){const P=powerState();
+  if(!atHome()){$('baseHead').innerHTML=`<div class="bt"><b>${esc((here&&here.name||'').toUpperCase())}</b><span>Day ${day()} · ${clockText()}</span></div>
+    <div class="chips">${chip('Pack '+Math.round(packLoad())+'/'+packCap())}${stormActive()?chip('Storm outside','bad'):''}</div>
+    <div class="vitmini">${vit('HP',G.hp,'hp')}${vit('FOOD',G.food,'food')}${vit('WATER',G.water,'water')}${vit('RADS',G.rads,'rad')}</div>`;return;}
   $('baseHead').innerHTML=`<div class="bt"><b>MERIDIAN TOWER</b><span>Day ${day()} · ${clockText()}</span></div>
   <div class="chips">${chip('Floors '+G.floors.length+'/'+TOWER.slots)}${chip('Survivors '+G.pop+'/'+popCap())}${P.dem||P.sup?chip('Power '+P.sup+'/'+P.dem,P.ok?'ok':'bad'):''}${stormActive()?chip('Storm','bad'):''}</div>
   <div class="vitmini">${vit('HP',G.hp,'hp')}${vit('FOOD',G.food,'food')}${vit('WATER',G.water,'water')}${vit('RADS',G.rads,'rad')}</div>`;}
 function vit(l,v,c){return`<div class="vm"><span>${l}</span><i class="bar ${c}"><b style="width:${clamp(v,0,100)}%"></b></i></div>`;}
 function renderBase(){renderHead();
   document.querySelectorAll('#baseTabs button').forEach(b=>b.classList.toggle('on',b.dataset.tab===baseTab));
+  $('baseTabs').hidden=!atHome();$('sleepBtn').hidden=!atHome();
   let h='';
   if(baseTab==='tower'){
     if(G.intro)h+=`<div class="card intro"><b>The shelter held.</b><p>The bomb hit east of downtown. Meridian Tower is a gutted shell above you, but the fallout shelter in its basement survived. Every floor you rebuild is a step back toward civilisation. Head out, scavenge, come home, build upward.</p></div>`;
+    h+=`<p class="note">Each floor you build becomes rooms you can walk: take the stairs in the north-west corner. The next floor to fit out is the gutted one at the top.</p>`;
     const P=powerState(),n=G.floors.length+1;
     if(n<=TOWER.slots){h+=`<div class="floor next"><div class="fl">F${n}</div><div class="fi"><b>Floor ${n} · gutted</b><span>Clear it and fit it out.</span></div><button data-act="toggleBuild" class="sm">${buildOpen?'Close':'Build'}</button></div>`;
       if(buildOpen){h+='<div class="opts">';for(const id in MODS){const m=MODS[id];if(!m.repeat&&built(id))continue;const ok=reqOk(m.req);const cost=floorCost(id,n);
@@ -412,10 +543,14 @@ function renderBase(){renderHead();
     for(let f=G.floors.length;f>=1;f--){const id=G.floors[f-1],m=MODS[id];h+=`<div class="floor"><div class="fl">F${f}</div><div class="fi"><b>${m.name}</b><span>${status(id,P)}</span></div></div>`;}
     h+=`<div class="floor bunker"><div class="fl">B1</div><div class="fi"><b>Fallout Shelter</b><span>Bunk, stove, workbench. Always safe.</span></div></div>`;
   }else if(baseTab==='craft'){
-    for(const st in STATION){const ok=st==='bunker'||built(st);h+=`<h4>${STATION[st]}${ok?'':' <em>· build a '+MODS[st].name+'</em>'}</h4>`;
-      for(const r of RECIPES.filter(x=>x.at===st)){const have=r.gear&&G.gear[r.gear],rq=reqOk(r.req);
-        h+=`<div class="opt${ok&&rq?'':' locked'}"><div><b>${r.name}</b>${r.give?`<em>→ ${fmt(r.give).replace(/\+/g,'')}</em>`:''}<p>${r.desc||''}</p>${have?'<span class="cost owned">Owned</span>':rq?costHTML(r.cost):`<span class="cost short">Needs ${MODS[r.req]?MODS[r.req].name:'Scrap backpack'}</span>`}</div>
-        <button data-act="craft" data-id="${r.id}" class="sm"${ok&&rq&&!have&&afford(r.cost)?'':' disabled'}>${have?'✓':'Make'}</button></div>`;}}
+    const recipe=(r,ok,src)=>{const have=r.gear&&G.gear[r.gear],rq=reqOk(r.req);
+      return`<div class="opt${ok&&rq?'':' locked'}"><div><b>${r.name}</b>${r.give?`<em>→ ${fmt(r.give).replace(/\+/g,'')}</em>`:''}<p>${r.desc||''}</p>${have?'<span class="cost owned">Owned</span>':rq?costHTML(r.cost,src):`<span class="cost short">Needs ${MODS[r.req]?MODS[r.req].name:'Scrap backpack'}</span>`}</div>
+        <button data-act="craft" data-id="${r.id}" class="sm"${ok&&rq&&!have&&afford(r.cost,src)?'':' disabled'}>${have?'✓':'Make'}</button></div>`;};
+    if(pctx.field){h+=`<h4>${FIELD[pctx.field]} <em>· uses what is in your pack</em></h4>`;for(const r of RECIPES.filter(x=>x.field===pctx.field))h+=recipe(r,true,G.pack);
+      h+=`<p class="note">Pack <b>${Math.round(packLoad())}</b> / ${packCap()}. Bigger jobs need the benches back at Meridian Tower.</p>`;}
+    else for(const st in STATION){if(pctx.station&&pctx.station!==st)continue;const ok=st==='bunker'||built(st),here_=pctx.station===st;
+      h+=`<h4>${STATION[st]}${!ok?' <em>· build a '+MODS[st].name+'</em>':here_?' <em>· uses the stash</em>':' <em>· walk to it to craft</em>'}</h4>`;
+      for(const r of RECIPES.filter(x=>x.at===st))h+=recipe(r,ok&&here_,G.stash);}
   }else if(baseTab==='stash'){
     h+=`<div class="packline">Pack <b>${Math.round(packLoad())}</b> / ${packCap()} · moves between the stash and your pack</div><div class="stash">`;
     for(const k of RK){const step=k==='ammo'?10:1;h+=`<div class="srow"><span class="sn">${RL[k]}</span><span class="sv">${G.stash[k]}<em>/${capOf(k)}</em></span>
@@ -424,7 +559,7 @@ function renderBase(){renderHead();
   }else if(baseTab==='exp'){
     h+=`<p class="note">Pick a destination to mark it on your compass and map. Farther out is richer and deadlier.</p>`;
     const list=UD.POIS.filter(p=>!p.hidden||G.radioFound).map(p=>({p,d:towerDist(p.x,p.z),tier:UD.tierAt(p.x,p.z)})).sort((a,b)=>a.d-b.d);
-    for(const {p,d,tier} of list){const done=p.spot&&p.spot.got;h+=`<div class="opt${G.route===p.id?' route':''}"><div><b>${p.name}</b><em class="t${tier}">${DANGER[tier]}</em><p>${Math.round(d)} m · ${p.focus}${done?' · emptied':''}</p></div>
+    for(const {p,d,tier} of list){const dr=p.kind==='bunker'&&UD.doors.find(x=>x.name===p.name),done=dr&&G.ins[dr.id]&&G.ins[dr.id].clr;h+=`<div class="opt${G.route===p.id?' route':''}"><div><b>${p.name}</b><em class="t${tier}">${DANGER[tier]}</em><p>${Math.round(d)} m · ${p.focus}${done?' · cleared':''}</p></div>
       <button data-act="route" data-id="${p.id}" class="sm">${G.route===p.id?'Clear':'Route'}</button></div>`;}
     if(!G.radioFound)h+=`<p class="note">Sealed bunkers out in the wastes stay hidden until you build a Radio Room.</p>`;
   }
@@ -449,7 +584,9 @@ baseBody.addEventListener('click',e=>{const b=e.target.closest('button');if(!b||
   else if(a==='route'){G.route=G.route===b.dataset.id?null:b.dataset.id;renderBase();}
   if(['eat','drink','heal','flush'].includes(a))renderBase();
   save();});
-$('outBtn').addEventListener('click',leaveBase);
+$('outBtn').addEventListener('click',closePanel);
+$('noteClose').addEventListener('click',()=>{$('noteov').hidden=true;});
+$('introBtn').addEventListener('click',()=>{$('introov').hidden=true;});
 $('sleepBtn').addEventListener('click',sleep);
 $('deathBtn').addEventListener('click',respawn);
 
@@ -458,7 +595,7 @@ function openBag(){if(G.inBase||G.dead)return;try{document.exitPointerLock();}ca
 function renderBag(){let h=`<div class="packline">Pack <b>${Math.round(packLoad())}</b> / ${packCap()}</div><div class="stash">`;
   for(const k of RK)if(G.pack[k]>0)h+=`<div class="srow"><span class="sn">${RL[k]}</span><span class="sv">${G.pack[k]}</span>${['food','water','meds','radaway','meat','dirty'].includes(k)?`<button data-k="${k}" class="sm">Use</button>`:'<span></span>'}</div>`;
   h+='</div>';if(packLoad()===0)h+='<p class="note">Your pack is empty.</p>';
-  h+=`<p class="note">Gear: ${['prybar','coat','vest','suit'].filter(g=>G.gear[g]).map(g=>({prybar:'pry bar',coat:'insulated coat',vest:'plate vest',suit:'rad suit'})[g]).join(', ')||'nothing special yet'}</p>`;
+  h+=`<p class="note">Gear: ${['prybar','machete','filter','coat','vest','suit'].filter(g=>G.gear[g]).map(g=>GEARNAME[g]).join(', ')||'nothing special yet'}</p>`;
   $('bagBody').innerHTML=h;}
 $('bagBody').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;consume(b.dataset.k,'pack');renderBag();});
 $('bagClose').addEventListener('click',()=>{$('bag').hidden=true;});
@@ -466,6 +603,7 @@ $('bagClose').addEventListener('click',()=>{$('bag').hidden=true;});
 /* ======================= map ======================= */
 const mapCv=$('mapCv');let mapScale=1,mapCx=0,mapCy=0;
 function openMap(){try{document.exitPointerLock();}catch(e){}firing=false;$('mapov').hidden=false;drawMap();}
+function mapPos(){if(!inside())return[player.x,player.z,false];if(here&&here.door)return[here.door.x,here.door.z,false];return[TOWER.x,TOWER.z,true];}
 function drawMap(){const W=mapCv.clientWidth,H=mapCv.clientHeight,dpr=Math.min(2,devicePixelRatio||1);mapCv.width=W*dpr;mapCv.height=H*dpr;const x=mapCv.getContext('2d');x.setTransform(dpr,0,0,dpr,0,0);
   const span=EXT+260;mapScale=Math.min(W,H)/(2*span)*.96;mapCx=W/2;mapCy=H/2;const P=(wx,wz)=>[mapCx+wx*mapScale,mapCy+wz*mapScale];
   x.fillStyle='#16130f';x.fillRect(0,0,W,H);
@@ -481,24 +619,24 @@ function drawMap(){const W=mapCv.clientWidth,H=mapCv.clientHeight,dpr=Math.min(2
     if(sel){x.strokeStyle='#f2b84b';x.lineWidth=2;x.beginPath();x.arc(a,b,10,0,7);x.stroke();}
     if(p.kind!=='camp'||sel){x.fillStyle=sel?'#f2b84b':'rgba(243,236,226,.75)';x.fillText(p.name,a,b-9);}}
   const [tx,ty]=P(TOWER.x,TOWER.z);x.fillStyle='#f2b84b';x.fillRect(tx-6,ty-6,12,12);x.fillStyle='#16130f';x.fillRect(tx-2,ty-2,4,4);x.fillStyle='#f2b84b';x.fillText('HOME',tx,ty+20);
-  if(!G.inBase){const [px,py]=P(player.x,player.z);x.save();x.translate(px,py);x.rotate(-yaw);x.fillStyle='#fff';x.beginPath();x.moveTo(0,-9);x.lineTo(6,7);x.lineTo(0,3);x.lineTo(-6,7);x.closePath();x.fill();x.restore();}
-  const r=routePoi();if(r){const [a,b]=P(r.x,r.z),[c,d]=G.inBase?P(TOWER.x,TOWER.z):P(player.x,player.z);x.setLineDash([5,5]);x.strokeStyle='rgba(242,184,75,.8)';x.lineWidth=1.5;x.beginPath();x.moveTo(c,d);x.lineTo(a,b);x.stroke();x.setLineDash([]);}
-  $('mapInfo').textContent=r?`Route: ${r.name} · ${Math.round(Math.hypot(r.x-(G.inBase?TOWER.x:player.x),r.z-(G.inBase?TOWER.z:player.z)))} m · ${DANGER[UD.tierAt(r.x,r.z)]} danger`:'Tap a place to set a route';}
+  if(!(G.inBase&&atHome())){const [mx0,mz0]=mapPos(),[px,py]=P(mx0,mz0);x.save();x.translate(px,py);x.rotate(-yaw);x.fillStyle='#fff';x.beginPath();x.moveTo(0,-9);x.lineTo(6,7);x.lineTo(0,3);x.lineTo(-6,7);x.closePath();x.fill();x.restore();}
+  const [qx,qz]=mapPos(),r=routePoi();if(r){const [a,b]=P(r.x,r.z),[c,d]=P(qx,qz);x.setLineDash([5,5]);x.strokeStyle='rgba(242,184,75,.8)';x.lineWidth=1.5;x.beginPath();x.moveTo(c,d);x.lineTo(a,b);x.stroke();x.setLineDash([]);}
+  $('mapInfo').textContent=r?`Route: ${r.name} · ${Math.round(Math.hypot(r.x-qx,r.z-qz))} m · ${DANGER[UD.tierAt(r.x,r.z)]} danger`:'Tap a place to set a route · lamps over doors mark buildings you can walk into';}
 mapCv.addEventListener('click',e=>{const rc=mapCv.getBoundingClientRect(),mx=e.clientX-rc.left,my=e.clientY-rc.top;let best=null,bd=22;
   for(const p of UD.POIS){if(p.hidden&&!G.radioFound)continue;const d=Math.hypot(mapCx+p.x*mapScale-mx,mapCy+p.z*mapScale-my);if(d<bd){bd=d;best=p;}}
-  if(best){G.route=G.route===best.id?null:best.id;S.click();drawMap();if(G.inBase)renderBase();save();}});
+  if(best){G.route=G.route===best.id?null:best.id;S.click();drawMap();if(G.inBase&&baseTab==='exp')renderBase();save();}});
 $('mapClose').addEventListener('click',()=>{$('mapov').hidden=true;});
 const routePoi=()=>G.route?UD.POIS.find(p=>p.id===G.route):null;
 
 /* ======================= input ======================= */
 let locked=false;const cv=renderer.domElement;
-const uiOpen=()=>!$('bag').hidden||!$('mapov').hidden||!$('title').hidden||G.dead;
+const uiOpen=()=>!$('bag').hidden||!$('mapov').hidden||!$('title').hidden||!$('noteov').hidden||!$('introov').hidden||G.dead;
 addEventListener('keydown',e=>{if(e.target&&e.target.tagName==='INPUT')return;keys[e.code]=true;
   if(/^(Arrow|Space|Tab)/.test(e.code))e.preventDefault();
-  if(e.code==='Escape'){$('bag').hidden=true;$('mapov').hidden=true;}
+  if(e.code==='Escape'){$('bag').hidden=true;$('mapov').hidden=true;$('noteov').hidden=true;$('introov').hidden=true;closePanel();}
   if(e.code==='KeyM'){$('mapov').hidden?openMap():($('mapov').hidden=true);return;}
   if(G.inBase||uiOpen()&&e.code!=='Tab'&&e.code!=='KeyI')return;
-  if(e.code==='KeyE'&&!e.repeat)useHeld=true;
+  if(e.code==='KeyE'&&!e.repeat)useNow();
   if(e.code==='KeyR')startReload();
   if(e.code==='KeyQ'||e.code==='KeyX')swapWeapon(1);
   if(e.code==='KeyF'){flashOn=!flashOn;S.click();}
@@ -527,7 +665,7 @@ cv.addEventListener('contextmenu',e=>e.preventDefault());
 function holdBtn(id,on,off){const el=$(id);el.addEventListener('pointerdown',e=>{e.preventDefault();try{el.setPointerCapture(e.pointerId);}catch(_){}el.classList.add('on');on();});
   const up=()=>{el.classList.remove('on');off&&off();};el.addEventListener('pointerup',up);el.addEventListener('pointercancel',up);el.addEventListener('lostpointercapture',up);el.addEventListener('contextmenu',e=>e.preventDefault());}
 holdBtn('btnFire',()=>{firing=true;},()=>{firing=false;});
-holdBtn('btnUse',()=>{useHeld=true;},()=>{useHeld=false;});
+holdBtn('btnUse',useNow,()=>{useHeld=false;});
 $('btnReload').addEventListener('click',startReload);$('btnSwap').addEventListener('click',()=>swapWeapon(1));
 $('btnLight').addEventListener('click',()=>{flashOn=!flashOn;$('btnLight').classList.toggle('on',flashOn);});
 $('btnBag').addEventListener('click',openBag);$('btnMap').addEventListener('click',openMap);$('mini').addEventListener('click',openMap);
@@ -547,7 +685,7 @@ function toggleCheat(){
   S.build();toast('Ash King · every item, fast feet, V or FLY to take off',true);syncCheatUI();
   if(G.inBase)renderBase();save();}
 function syncCheatUI(){const c=!!G.cheat&&coarse;$('btnFly').hidden=!c;$('btnUp').hidden=$('btnDown').hidden=!(c&&flying);$('btnFly').classList.toggle('on',flying);$('btnFly').textContent=flying?'LAND':'FLY';}
-function setFly(on){if(!G.cheat)return;flying=on;if(!on){vert=0;vel.y=0;}syncCheatUI();toast(on?'Flying · Space up, C down, V to land':'Landed');}
+function setFly(on){if(!G.cheat||inside())return;flying=on;if(!on){vert=0;vel.y=0;}syncCheatUI();toast(on?'Flying · Space up, C down, V to land':'Landed');}
 function tapSecret(){const now=performance.now();if(now-tapT>2000)tapN=0;tapT=now;if(++tapN>=7){tapN=0;toggleCheat();}}
 $('baseHead').addEventListener('click',e=>{if(e.target.closest('.bt b'))tapSecret();});
 document.querySelector('.brand').addEventListener('pointerdown',e=>{e.stopPropagation();tapSecret();});
@@ -571,7 +709,8 @@ function step(dt){
   const a=1-Math.exp(-(flying?4:9)*dt);vel.x+=(tx-vel.x)*a;vel.z+=(tz-vel.z)*a;
   player.x+=vel.x*dt;player.z+=vel.z*dt;
   const gy=UD.groundAt(player.x,player.z);
-  if(flying){let u=vert;if(!uiOpen()){if(keys.Space)u+=1;if(keys.KeyC||keys.ControlLeft)u-=1;}
+  if(inside()){In.collide(player,.38);groundY=In.O.y;player.y=groundY+1.7;}
+  else if(flying){let u=vert;if(!uiOpen()){if(keys.Space)u+=1;if(keys.KeyC||keys.ControlLeft)u-=1;}
     vel.y+=(clamp(u,-1,1)*(run?45:18)-vel.y)*a;player.y=clamp(player.y+vel.y*dt,gy+1.7,600);
     UD.collide(player,.45,player.y-1.7);groundY=player.y-1.7;}
   else{UD.collide(player,.45,groundY);if(groundY>gy+.3){groundY=Math.max(gy,groundY-18*dt);}else groundY+=(gy-groundY)*(1-Math.exp(-14*dt));player.y=groundY+1.7;}
@@ -604,15 +743,16 @@ function hud(dt){
   const heading=((-yaw*180/PI)%360+360)%360;
   strip.style.transform=`translateX(${compassW/2-(heading+360)*PX}px)`;
   const bearing=(x,z)=>((Math.atan2(x-player.x,-(z-player.z))*180/PI)+360)%360;
-  markEl($('homeMark'),bearing(TOWER.x,TOWER.z),heading);
-  const rp=routePoi();if(rp)markEl($('wpMark'),bearing(rp.x,rp.z),heading);else $('wpMark').style.opacity=0;
+  const ins=inside(),rp=routePoi();
+  if(ins){$('homeMark').style.opacity=0;$('wpMark').style.opacity=0;}
+  else{markEl($('homeMark'),bearing(TOWER.x,TOWER.z),heading);if(rp)markEl($('wpMark'),bearing(rp.x,rp.z),heading);else $('wpMark').style.opacity=0;}
   $('hitmark').style.opacity=hitT>0?1:0;hitT-=dt;
   $('vig').style.opacity=Math.max(hurtT/0.6,G.hp<30?.35+.15*Math.sin(performance.now()/300):0);hurtT=Math.max(0,hurtT-dt);
   $('radvig').style.opacity=clamp(curRad/2.5,0,.7);
   {const rs=$('radsign'),on=curRad>.05;rs.classList.toggle('on',on);rs.classList.toggle('hot',curRad>1);if(on)rs.style.setProperty('--rb',clamp(1.4-curRad*.4,.25,1.4).toFixed(2)+'s');}
   hudT+=dt;if(hudT<.12)return;hudT=0;
   $('clock').textContent=clockText();$('dayv').textContent='Day '+day();
-  const temp=ambientTemp();$('wx').textContent=(stormActive()?'Toxic storm':night>.5?'Ashfall':'Ash haze')+' · '+temp+'°C';
+  const temp=ambientTemp();$('wx').textContent=ins?(stormActive()?'Indoors · storm outside':'Indoors')+' · '+temp+'°C out':(stormActive()?'Toxic storm':night>.5?'Ashfall':'Ash haze')+' · '+temp+'°C';
   setBar('bHp',G.hp);setBar('bFood',G.food);setBar('bWater',G.water);setBar('bRad',G.rads);setBar('bSta',G.sta);
   $('vHp').textContent=Math.ceil(G.hp);$('vRad').textContent=Math.round(G.rads);
   let chips='';if(cold)chips+='<span class="st cold">COLD</span>';if(heat)chips+='<span class="st heat">HEAT</span>';
@@ -621,6 +761,11 @@ function hud(dt){
   $('pack').innerHTML=`PACK <b>${Math.round(packLoad())}</b>/${packCap()}`;
   const W=WEAP[G.weapon];$('wName').textContent=W.name;$('wAmmo').innerHTML=W.melee?'—':reloadT>0?'<em>reloading</em>':`<b>${G.mag[G.weapon]}</b> / ${G.pack.ammo}`;
   // readout
+  if(ins){const key='in'+here.name+here.room;if(key!==lastKey){lastKey=key;$('district').textContent=here.name;$('street').textContent=here.room;
+      $('sub').textContent=here.vault?'radiation-sealed, air still stale':G.loc.id==='tower'?'home · safe':'indoors';const tier=here.tier;
+      if(tier){$('threat').innerHTML=`THREAT <i>${'▮'.repeat(tier)}${'▯'.repeat(5-tier)}</i> ${DANGER[tier]}`;$('threat').className='threat t'+tier;}else{$('threat').innerHTML='SAFE';$('threat').className='threat t1';}}
+    const left=In.cur.enemies.filter(e=>!e.dead).length;$('route').textContent=left?`${left} hostile${left>1?'s':''} inside`:G.loc.id==='tower'?'Home':'Clear';}
+  else{
   const k=Math.round(player.x/CELL),l=Math.round(player.z/CELL),dx=Math.abs(player.x-k*CELL),dz=Math.abs(player.z-l*CELL);
   const bi=Math.floor(player.x/CELL),bj=Math.floor(player.z/CELL),out=Math.abs(player.x)>EXT+6||Math.abs(player.z)>EXT+6;
   let dist=out?'outskirts':UD.lotType[bi+','+bj]||'outskirts';if(gzDist(player.x,player.z)<RIM+10)dist='crater';
@@ -634,12 +779,12 @@ function hud(dt){
   const tier=UD.tierAt(player.x,player.z);
   const key=dist+st+sub+tier;if(key!==lastKey){lastKey=key;$('district').textContent=UD.DNAME[dist]||dist;$('street').textContent=st;$('sub').textContent=sub;
     $('threat').innerHTML=`THREAT <i>${'▮'.repeat(tier)}${'▯'.repeat(5-tier)}</i> ${DANGER[tier]}`;$('threat').className='threat t'+tier;}
-  $('route').textContent=rp?`${rp.name} · ${Math.round(Math.hypot(rp.x-player.x,rp.z-player.z))} m`:`Home · ${Math.round(towerDist(player.x,player.z))} m`;
+  $('route').textContent=rp?`${rp.name} · ${Math.round(Math.hypot(rp.x-player.x,rp.z-player.z))} m`:`Home · ${Math.round(towerDist(player.x,player.z))} m`;}
   // prompt
-  if(target&&!G.inBase){$('prompt').classList.add('on');$('ptext').textContent=(coarse?'':target.dur?'Hold E · ':'E · ')+target.label;$('pbar').style.width=(target.dur?useT/target.dur*100:0)+'%';}
+  if(target&&!G.inBase){$('prompt').classList.add('on');$('ptext').textContent=(coarse||target.kind==='none'?'':target.dur?'Hold E · ':'E · ')+target.label;$('pbar').style.width=(target.dur?useT/target.dur*100:0)+'%';}
   else $('prompt').classList.remove('on');
-  $('btnUse').hidden=!target||!coarse;
-  drawMini();
+  $('btnUse').hidden=!target||!coarse||target.kind==='none';
+  if(ins)drawMiniInside();else drawMini();
 }
 const mini=$('mini'),mx=mini.getContext('2d');
 function drawMini(){const S2=mini.width,c=S2/2,sc=c/150;
@@ -651,13 +796,27 @@ function drawMini(){const S2=mini.width,c=S2/2,sc=c/150;
   mx.fillStyle='rgba(140,255,60,.22)';mx.beginPath();mx.arc(GZ.x,GZ.z,RIM,0,7);mx.fill();
   mx.fillStyle='rgba(140,255,60,.4)';for(const r of UD.radSpots)if(Math.abs(r.x-px)<170&&Math.abs(r.z-pz)<170){mx.beginPath();mx.arc(r.x,r.z,r.r,0,7);mx.fill();}
   for(const s of UD.loot)if(!s.got&&Math.abs(s.x-px)<45&&Math.abs(s.z-pz)<45){mx.fillStyle=s.type==='car'?'rgba(200,190,170,.6)':'#cfe86a';mx.fillRect(s.x-1.6,s.z-1.6,3.2,3.2);}
-  mx.fillStyle='#ff5a3a';for(const e of A.list)if(!e.dead&&Math.abs(e.x-px)<90&&Math.abs(e.z-pz)<90){mx.beginPath();mx.arc(e.x,e.z,2.6,0,7);mx.fill();}
+  mx.strokeStyle='#ffd29a';mx.lineWidth=1.2;for(const d of UD.doors)if(Math.abs(d.x-px)<60&&Math.abs(d.z-pz)<60)mx.strokeRect(d.x-2,d.z-2,4,4);
+  mx.fillStyle='#ff5a3a';for(const e of A.list)if(!e.dead&&!e.inside&&Math.abs(e.x-px)<90&&Math.abs(e.z-pz)<90){mx.beginPath();mx.arc(e.x,e.z,2.6,0,7);mx.fill();}
   mx.fillStyle='#f2b84b';mx.fillRect(TOWER.x-TOWER.w/2,TOWER.z-TOWER.d/2,TOWER.w,TOWER.d);
   mx.setTransform(1,0,0,1,0,0);
   const edge=(wx,wz,col)=>{const ddx=wx-px,ddz=wz-pz;let sx=(ddx*rx+ddz*rz)*sc,sy=-(ddx*fx+ddz*fz)*sc;const L=Math.hypot(sx,sy),R=c-9;if(L>R){sx*=R/L;sy*=R/L;}
     mx.fillStyle=col;mx.save();mx.translate(c+sx,c+sy);mx.rotate(PI/4);mx.fillRect(-5,-5,10,10);mx.restore();};
   const rp=routePoi();if(rp)edge(rp.x,rp.z,'#ffe14a');if(towerDist(px,pz)>140)edge(TOWER.x,TOWER.z,'#f2b84b');
   mx.fillStyle='#fff';mx.beginPath();mx.moveTo(c,c-9);mx.lineTo(c+6,c+7);mx.lineTo(c,c+3);mx.lineTo(c-6,c+7);mx.closePath();mx.fill();
+  mx.restore();mx.strokeStyle='rgba(243,214,160,.4)';mx.lineWidth=2;mx.beginPath();mx.arc(c,c,c-2,0,7);mx.stroke();}
+
+function drawMiniInside(){const S2=mini.width,c=S2/2,sc=c/22,I=In.cur;
+  mx.setTransform(1,0,0,1,0,0);mx.clearRect(0,0,S2,S2);mx.save();mx.beginPath();mx.arc(c,c,c-2,0,7);mx.clip();mx.fillStyle='rgba(16,13,10,.82)';mx.fillRect(0,0,S2,S2);
+  const fx=-Math.sin(yaw),fz=-Math.cos(yaw),rx=Math.cos(yaw),rz=-Math.sin(yaw),px=player.x,pz=player.z;
+  const a=sc*rx,b=-sc*fx,cc=sc*rz,d=-sc*fz;mx.setTransform(a,b,cc,d,c-(px*a+pz*cc),c-(px*b+pz*d));
+  const CSz=In.CS,st=insState(I.id);
+  for(const cl of I.cells){if(cl.ch===' ')continue;const [x,z]=I.ctr(cl.i,cl.j);
+    mx.fillStyle=cl.ch==='#'||cl.ch==='='?'rgba(150,140,125,.55)':cl.solid?'rgba(110,100,88,.45)':'rgba(70,64,56,.5)';mx.fillRect(x-CSz/2,z-CSz/2,CSz+.05,CSz+.05);}
+  for(const o of I.objs){let col=null;if(o.kind==='loot'){const v=st.l[o.i+','+o.j];if(!(v&&v>day()))col='#cfe86a';}else if(o.kind==='exit')col='#3aff6a';else if(o.st==='up'||o.st==='down')col='#f3ece2';else if(o.kind==='st')col='#f2b84b';else if(o.kind==='note')col='#ffd29a';else if(o.kind==='npc')col='#8ad0ff';
+    if(col){mx.fillStyle=col;mx.fillRect(o.x-.6,o.z-.6,1.2,1.2);}}
+  mx.fillStyle='#ff5a3a';for(const e of I.enemies)if(!e.dead){mx.beginPath();mx.arc(e.x,e.z,.6,0,7);mx.fill();}
+  mx.setTransform(1,0,0,1,0,0);mx.fillStyle='#fff';mx.beginPath();mx.moveTo(c,c-9);mx.lineTo(c+6,c+7);mx.lineTo(c,c+3);mx.lineTo(c-6,c+7);mx.closePath();mx.fill();
   mx.restore();mx.strokeStyle='rgba(243,214,160,.4)';mx.lineWidth=2;mx.beginPath();mx.arc(c,c,c-2,0,7);mx.stroke();}
 
 /* ======================= ash fall ======================= */
@@ -669,16 +828,18 @@ const ash=new THREE.Points(ashGeo,ashMat);ash.frustumCulled=false;scene.add(ash)
 
 /* ======================= hint + title ======================= */
 const hint=$('hint');
-hint.textContent=coarse?'Left thumb walks · right thumb looks · FIRE shoots · hold USE to search · tap the minimap for the map':'Click to look · WASD move · Shift run · click shoot · R reload · Q swap · hold E search · F light · Tab pack · M map';
+hint.textContent=coarse?'Left thumb walks · right thumb looks · USE opens doors, searches and works benches · tap the minimap for the map':'Click to look · WASD move · Shift run · E use, enter, search · click shoot · R reload · Q swap · F light · Tab pack · M map';
 let hintGone=true;function dismissHint(){if(hintGone)return;hintGone=true;setTimeout(()=>hint.classList.add('gone'),3000);}
 function showTitle(){$('title').hidden=false;$('contBtn').hidden=!hasSave();}
 function start(fresh){S.init();S.resume();
   if(fresh){G=newState();UD.G=G;try{localStorage.removeItem(SAVE_KEY);}catch(e){}}else load();
-  G.dead=false;$('death').hidden=true;
+  G.dead=false;G.inBase=false;$('death').hidden=true;$('base').hidden=true;document.body.classList.remove('inbase');vm.visible=true;
   for(const s of UD.loot){s.got=false;UD.setLootVisible(s,true);}for(const c of UD.camps)c.day=0;
-  $('title').hidden=true;A.clear();for(const d of[...drops])removeDrop(d);restoreLoot();rebuildTower();lastHour=Math.floor(G.t);
+  $('title').hidden=true;A.clear();In.unload();for(const d of[...drops])removeDrop(d);restoreLoot();rebuildTower();lastHour=Math.floor(G.t);
   hint.classList.remove('gone');hintGone=false;setTimeout(dismissHint,9000);
-  if(G.inBase)enterBase();else{$('base').hidden=true;document.body.classList.remove('inbase');vm.visible=true;player.set(TOWER.door.x,1.7,TOWER.door.z+3.5);}
+  if(G.loc){const l=G.loc;enterPlace(l,l.id!=='tower'?'exit':l.fl===-1?'up':l.fl===0?'exit':'down');}
+  else{player.set(TOWER.door.x,1.7,TOWER.door.z+3.5);groundY=0;yaw=PI;}
+  if(fresh)$('introov').hidden=false;
   syncCheatUI();running=true;}
 $('newBtn').addEventListener('click',()=>{if(hasSave()&&!$('contBtn').hidden&&!confirm('Start over? Your current tower and supplies will be lost.'))return;start(true);});
 $('contBtn').addEventListener('click',()=>start(false));
@@ -687,7 +848,7 @@ $('contBtn').addEventListener('click',()=>start(false));
 let viewOff=false,running=false,last=performance.now(),T=0,lightT=0,geigT=0,lightningT=8;
 rebuildTower();restoreLoot();applyTime();showTitle();
 function frame(now){
-  const dt=Math.min(.05,(now-last)/1000);last=now;T+=dt;
+  const dt=Math.min(.05,(now-last)/1000),rdt=Math.min(.25,(now-last)/1000);last=now;T+=dt;
   if(running&&!G.dead){
     G.t+=dt*24/CYCLE;const h=Math.floor(G.t);if(h!==lastHour){for(let k=lastHour+1;k<=h;k++)onHour(k,false);lastHour=h;}
   }
@@ -697,28 +858,27 @@ function frame(now){
   wind.x=.5+stormMix*2.2;wind.z=.2+stormMix*.8;
   S.setWind(stormMix*.8+.15);
   let spd=0;
-  if(G.inBase){orbitA+=dt*.07;const ry=roofY(),a=Math.sin(orbitA)*.33;
-    camera.position.set(TOWER.x+Math.sin(a)*30,2.4,TOWER.z+Math.cos(a)*30);camera.lookAt(TOWER.x,Math.min(ry*.62+5,32),TOWER.z);
-    const Wd=innerWidth,Hd=innerHeight;if(Wd>640)camera.setViewOffset(Wd,Hd,Math.min(430,Wd)/2,0,Wd,Hd);else camera.setViewOffset(Wd,Hd,0,Hd*.3,Wd,Hd);viewOff=true;
+  if(G.inBase){camera.position.set(player.x,player.y,player.z);camera.rotation.set(pitch,yaw,0);
     softT+=dt;if(softT>2){softT=0;renderHead();}}
-  else if(running&&!G.dead){if(viewOff){camera.clearViewOffset();viewOff=false;}spd=step(dt);
+  else if(running&&!G.dead){spd=step(dt);
     // fire control
     fireCd-=dt;swingT=Math.max(0,swingT-dt);muzzle.intensity*=Math.exp(-40*dt);
     if(reloadT>0){reloadT-=dt;if(reloadT<=0){const W=WEAP[G.weapon];const n=Math.min(W.cap-G.mag[G.weapon],G.pack.ammo);G.mag[G.weapon]+=n;G.pack.ammo-=n;}}
     if(firing&&!uiOpen())fire();
     // interaction
-    tgtT-=dt;if(tgtT<=0){tgtT=.1;const nt=findTarget();if(!nt||!target||nt.label!==target.label)useT=0;target=nt;}
-    if(target&&useHeld){if(!target.dur){useHeld=false;doInteract();target=null;}else{useT+=dt;if(useT>=target.dur){useT=0;useHeld=false;doInteract();target=null;tgtT=0;}}}else useT=0;
+    tgtT-=rdt;if(tgtT<=0){tgtT=.1;const nt=findTarget();if(!nt||!target||nt.label!==target.label)useT=0;target=nt;}
+    if(target&&useHeld){if(!target.dur){useHeld=false;doInteract();target=null;}else{useT+=rdt;if(useT>=target.dur){useT=0;useHeld=false;doInteract();target=null;tgtT=0;}}}else useT=0;
     // survival: radiation, temperature, hunger
-    let rate=0;const dg=gzDist(player.x,player.z);
-    if(dg<RIM+20)rate+=2.8*(1-dg/(RIM+20))+.3;else if(dg<260)rate+=.1;
-    for(const r of UD.radSpots){const dd=Math.hypot(r.x-player.x,r.z-player.z);if(dd<r.r)rate+=r.str*(1-dd/r.r);}
-    if(storming)rate+=.3*stormMix;rate*=G.gear.suit?.35:1;curRad=rate;
+    let rate=0;const dg=gzDist(player.x,player.z),ins=inside();
+    if(!ins){if(dg<RIM+20)rate+=2.8*(1-dg/(RIM+20))+.3;else if(dg<260)rate+=.1;
+      for(const r of UD.radSpots){const dd=Math.hypot(r.x-player.x,r.z-player.z);if(dd<r.r)rate+=r.str*(1-dd/r.r);}
+      if(storming)rate+=.3*stormMix;}
+    rate*=G.gear.suit?.35:1;curRad=rate;
     G.rads=clamp(G.rads+rate*dt,0,100);
     if(G.rads>50)hurtTick((G.rads-50)*.012*dt);
     geigerAcc+=rate*9*dt;while(geigerAcc>1){geigerAcc-=Math.random()*1.4+.3;S.geiger();}
-    const temp=ambientTemp();nearFire=false;for(const F of UD.fires)if(Math.abs(F.x-player.x)<7&&Math.abs(F.z-player.z)<7&&Math.hypot(F.x-player.x,F.z-player.z)<6){nearFire=true;break;}
-    cold=temp<3&&!G.gear.coat&&!nearFire;heat=temp>36;
+    const temp=ambientTemp();nearFire=false;if(!ins)for(const F of UD.fires)if(Math.abs(F.x-player.x)<7&&Math.abs(F.z-player.z)<7&&Math.hypot(F.x-player.x,F.z-player.z)<6){nearFire=true;break;}
+    cold=!ins&&temp<3&&!G.gear.coat&&!nearFire;heat=!ins&&temp>36;
     if(cold)hurtTick(.07*dt);
     if(G.food<=0)hurtTick(.12*dt);if(G.water<=0)hurtTick(.15*dt);
     if(G.food>50&&G.water>50&&G.rads<30&&G.hp<100)G.hp=Math.min(100,G.hp+.04*dt);
@@ -727,7 +887,10 @@ function frame(now){
   }
   // world sim
   if(running){
-    A.update(dt,{px:player.x,py:player.y,pz:player.z,hidden:G.inBase||G.dead,night:night>.5,storm:stormActive(),tier:UD.tierAt(player.x,player.z),spawning:!G.inBase&&!G.dead,day:day(),...actx});
+    const ins=inside();
+    A.update(dt,{px:player.x,py:player.y,pz:player.z,hidden:G.inBase||G.dead||ins,night:night>.5,storm:stormActive(),tier:UD.tierAt(player.x,player.z),spawning:!G.inBase&&!G.dead&&!ins,day:day(),...actx});
+    if(ins){In.update(dt,T,{px:player.x,py:player.y,pz:player.z,hidden:G.dead||atHome(),...actx});
+      const I=In.cur;if(I.enemies.length&&!I.cleared&&I.enemies.every(e=>e.dead)){I.cleared=true;insState(I.id).clr=day();toast(here.name+' · cleared',true);save();}}
     // turrets
     if(built('defense')&&powerState().ok)for(const t of turrets){t.cd-=dt;const e=A.nearest(t.x,t.z,78,true,t.y);if(!e)continue;
       const ya=Math.atan2(-(e.x-t.x),-(e.z-t.z));t.head.rotation.y+=(Math.atan2(Math.sin(ya-t.head.rotation.y),Math.cos(ya-t.head.rotation.y)))*Math.min(1,dt*6);
@@ -742,7 +905,7 @@ function frame(now){
   UD.animWorld(T,dt,camera.position,wind);
   sky.position.copy(camera.position);stars.position.copy(camera.position);
   moon.position.copy(camera.position).addScaledVector(sunDir,-2000);
-  const focus=G.inBase?new THREE.Vector3(TOWER.x,0,TOWER.z):player;
+  const focus=player;
   sun.position.copy(focus).addScaledVector(sunDir,400);sun.target.position.copy(focus);
   moonLight.position.copy(focus).addScaledVector(sunDir,-400);moonLight.target.position.copy(focus);
   // ash
@@ -753,12 +916,12 @@ function frame(now){
     if(ashPos[o+2]-cp.z>box)ashPos[o+2]-=box*2;else if(ashPos[o+2]-cp.z<-box)ashPos[o+2]+=box*2;}
   ashGeo.attributes.position.needsUpdate=true;
   ashMat.color.setRGB(.55+.25*(1-night),.55+.3*(1-night)-stormMix*.05,.5+.25*(1-night)-stormMix*.25);ashMat.size=.11+stormMix*.05;
-  if(running&&!G.inBase)hud(dt);
+  if(running&&!G.inBase)hud(dt);else if(G.inBase&&$('vig'))$('vig').style.opacity=0;
   compassW=strip.parentElement.clientWidth||200;
   renderer.render(scene,camera);
   requestAnimationFrame(frame);
 }
 function hurtTick(v){G.hp-=v;if(G.hp<=0)die();}
 requestAnimationFrame(frame);
-UD.debug={get G(){return G;},player,enterBase,leaveBase,start,setT:v=>{G.t=v;lastHour=Math.floor(v);},teleport:(x,z)=>{player.x=x;player.z=z;},look:(y,p)=>{yaw=y;pitch=p;}};
+UD.debug={get G(){return G;},player,findTarget,use:()=>{target=findTarget();doInteract();target=null;},enterPlace,exitPlace,enterTower,enterDoor,openPanel,closePanel,In,get target(){return target;},start,setT:v=>{G.t=v;lastHour=Math.floor(v);},teleport:(x,z)=>{player.x=x;player.z=z;},look:(y,p)=>{yaw=y;pitch=p;}};
 })();

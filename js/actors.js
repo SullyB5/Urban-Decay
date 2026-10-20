@@ -63,11 +63,11 @@ function update(dt,ctx){
   if(spawnT<=0&&ctx.spawning){spawnT=1.3;
     const base=[0,1,3,5,7,7][ctx.tier]||1;let target=Math.round(base*(ctx.night?1.6:1)+(ctx.storm?2:0));target=Math.min(target,12);
     if(UD.towerDist(ctx.px,ctx.pz)<60)target=Math.min(target,1);
-    let near=0;for(const e of list)if(!e.dead&&!e.raid&&Math.hypot(e.x-ctx.px,e.z-ctx.pz)<140)near++;
+    let near=0;for(const e of list)if(!e.dead&&!e.raid&&!e.inside&&Math.hypot(e.x-ctx.px,e.z-ctx.pz)<140)near++;
     if(near<target){const p=roadPoint(ctx.px,ctx.pz,75,115);if(p&&UD.towerDist(p[0],p[1])>70)spawn(pickType(UD.tierAt(p[0],p[1]),ctx.night),p[0],p[1]);}
     for(const c of UD.camps){if(c.day===ctx.day)continue;if(Math.hypot(c.x-ctx.px,c.z-ctx.pz)<120){c.day=ctx.day;for(let k=0;k<c.n;k++)spawn('raider',c.x+rr(-6,6),c.z+rr(-6,6),{home:c});}}
   }
-  for(let i=list.length-1;i>=0;i--){const e=list[i],T=e.T,m=e.m;
+  for(let i=list.length-1;i>=0;i--){const e=list[i],T=e.T,m=e.m;if(e.inside)continue;
     const dx=ctx.px-e.x,dz=ctx.pz-e.z,d=Math.hypot(dx,dz);
     if(e.dead){e.deadT+=dt;const k=Math.min(1,e.deadT/.45);
       if(m.quad){m.g.rotation.z=k*PI/2;}else{m.g.rotation.x=-k*PI/2*e.fallDir;m.g.position.y=UD.groundAt(e.x,e.z)+k*.2;}
@@ -125,9 +125,9 @@ function hitscan(o,dir,range){let best=null;
       const d2=cx*cx+cyy*cyy+cz*cz-tca*tca;if(d2>r*r)continue;const t=tca-Math.sqrt(r*r-d2);
       if(!best||t<best.t)best={e,t,head:head&&!e.T.r?false:head};}}
   return best;}
-function nearest(x,z,range,needLos,y=0){let best=null,bd=range;for(const e of list){if(e.dead)continue;const d=Math.hypot(e.x-x,e.z-z);if(d<bd){if(needLos&&!UD.los(x,y,z,e.x,e.y+1.2,e.z))continue;bd=d;best=e;}}return best;}
+function nearest(x,z,range,needLos,y=0){let best=null,bd=range;for(const e of list){if(e.dead||e.inside)continue;const d=Math.hypot(e.x-x,e.z-z);if(d<bd){if(needLos&&!UD.los(x,y,z,e.x,e.y+1.2,e.z))continue;bd=d;best=e;}}return best;}
 function spawnRaid(n){const out=[];for(let k=0;k<n;k++){const p=roadPoint(TOWER.x,TOWER.z,120,150);if(!p)continue;out.push(spawn(Math.random()<.7?'raider':'ghoul',p[0],p[1],{raid:true}));}return out;}
-function clear(){for(let i=list.length-1;i>=0;i--)remove(list[i]);}
+function clear(){for(let i=list.length-1;i>=0;i--)if(!list[i].inside)remove(list[i]);}
 
 /* ---------- survivors living at the tower ---------- */
 const surv=[];
@@ -143,18 +143,18 @@ function animSurvivors(t,dt){for(const s of surv){s.ph+=dt;s.m.g.rotation.y=Math
 /* ---------- fx: tracers + puffs ---------- */
 const TR=32,trPos=new Float32Array(TR*6),trCol=new Float32Array(TR*6),trLife=new Float32Array(TR);let trI=0;
 const trGeo=new THREE.BufferGeometry();trGeo.setAttribute('position',new THREE.BufferAttribute(trPos,3));trGeo.setAttribute('color',new THREE.BufferAttribute(trCol,3));
-const tracers=new THREE.LineSegments(trGeo,new THREE.LineBasicMaterial({vertexColors:true,transparent:true,blending:THREE.AdditiveBlending,depthWrite:false}));tracers.frustumCulled=false;scene.add(tracers);
+const tracers=new THREE.LineSegments(trGeo,new THREE.LineBasicMaterial({vertexColors:true,transparent:true,blending:THREE.AdditiveBlending,depthWrite:false}));tracers.frustumCulled=false;tracers.userData.always=true;scene.add(tracers);
 const _c=new THREE.Color();
 function tracer(a,b,hex){const i=trI++%TR;trPos.set([a.x,a.y,a.z,b.x,b.y,b.z],i*6);_c.set(hex).convertSRGBToLinear().multiplyScalar(2);trCol.set([_c.r,_c.g,_c.b,_c.r*.3,_c.g*.3,_c.b*.3],i*6);trLife[i]=.07;
   trGeo.attributes.position.needsUpdate=true;trGeo.attributes.color.needsUpdate=true;}
 const PF=48,pfPos=new Float32Array(PF*3),pfVel=new Float32Array(PF*3),pfLife=new Float32Array(PF),pfCol=new Float32Array(PF*3);let pfI=0;
 const pfGeo=new THREE.BufferGeometry();pfGeo.setAttribute('position',new THREE.BufferAttribute(pfPos,3));pfGeo.setAttribute('color',new THREE.BufferAttribute(pfCol,3));
-const puffs=new THREE.Points(pfGeo,new THREE.PointsMaterial({size:.35,map:UD.softTex,vertexColors:true,transparent:true,depthWrite:false}));puffs.frustumCulled=false;scene.add(puffs);
+const puffs=new THREE.Points(pfGeo,new THREE.PointsMaterial({size:.35,map:UD.softTex,vertexColors:true,transparent:true,depthWrite:false}));puffs.frustumCulled=false;puffs.userData.always=true;scene.add(puffs);
 for(let i=0;i<PF;i++)pfPos[i*3+1]=-999;
 function puff(x,y,z,hex){_c.set(hex).convertSRGBToLinear();for(let k=0;k<6;k++){const i=pfI++%PF;pfPos.set([x,y,z],i*3);pfVel.set([rr(-1.5,1.5),rr(.5,2.5),rr(-1.5,1.5)],i*3);pfLife[i]=rr(.3,.6);pfCol.set([_c.r,_c.g,_c.b],i*3);}}
 function fx(dt){for(let i=0;i<TR;i++)if(trLife[i]>0){trLife[i]-=dt;if(trLife[i]<=0){trPos.fill(0,i*6,i*6+6);trGeo.attributes.position.needsUpdate=true;}}
   for(let i=0;i<PF;i++)if(pfLife[i]>0){pfLife[i]-=dt;pfVel[i*3+1]-=6*dt;for(let k=0;k<3;k++)pfPos[i*3+k]+=pfVel[i*3+k]*dt;if(pfLife[i]<=0)pfPos[i*3+1]=-999;}
   pfGeo.attributes.position.needsUpdate=true;}
 
-UD.Actors={list,spawn,remove,update,damage,hitscan,nearest,spawnRaid,clear,setSurvivors,animSurvivors,tracer,puff,fx,TYPES};
+UD.Actors={list,spawn,remove,update,damage,hitscan,nearest,spawnRaid,clear,setSurvivors,animSurvivors,tracer,puff,fx,TYPES,humanoid,MAT};
 })();
