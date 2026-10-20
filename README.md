@@ -11,6 +11,7 @@ A wasteland survival build in the Vista 3D series. The bomb fell east of downtow
 - **Settlement:** power supply and demand, fuel burn, rain catchers, farming, survivors who arrive (Radio Room), eat, scavenge, and leave if you starve them. Night raids on the tower.
 - **Crafting:** from a pry bar, snare line and boiled water at the shelter bench up to firearms, plate vests, rad suits, rucksacks, ammo presses and turret servos.
 - **Expeditions:** landmarks with themed loot (hospital meds, MegaMart food, fuel stops, military checkpoints, a downed gunship, raider camps, the stadium stronghold, ground zero tech). Danger and loot scale with distance from home. Sealed bunkers in the outer wastes appear once you build a Radio Room.
+- **Ash King (type ASHKING, or tap the title 7 times on a phone):** finishes Meridian Tower with all ten floors laid out to meet every requirement and keep the power balanced, fills it with survivors, and hands you every item.
 - **Hostiles:** ghouls, rad hounds (hunt them for meat), raiders with rifles, and glowing brutes near the crater. Die out there and your pack is gone.
 
 ## Going inside

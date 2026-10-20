@@ -674,15 +674,21 @@ $('baseMap').addEventListener('click',openMap);
 
 /* ======================= secret: type ASHKING, or tap the title 7 times ======================= */
 let flying=false,vert=0,codeBuf='',tapN=0,tapT=0;
+const BEST_TOWER=['quarters','storage','workshop','kitchen','purifier','medbay','generator','farm','defense','radio'];
 function toggleCheat(){
   if(G.cheat){G.cheat=false;flying=false;toast('Cheats off');syncCheatUI();save();return;}
   G.cheat=true;$('bag').hidden=true;
+  // finish Meridian Tower: all ten floors, ordered so every requirement is met and power covers demand
+  // (one generator feeds purifier 2 + farm 2 + turrets 1 + radio 1), with every floor fully staffed
+  G.floors=[...BEST_TOWER];G.pop=popCap();G.fuelAcc=0;rebuildTower();
   for(const k of RK)G.stash[k]=capOf(k);
-  for(const g of['prybar','snares','pack1','pack2','coat','shotgun','rifle','vest','suit','turret2'])G.gear[g]=true;
+  for(const g of['prybar','snares','pack1','pack2','coat','shotgun','rifle','vest','suit','turret2','machete','filter'])G.gear[g]=true;
+  if(G.weapon==='knife')G.weapon='machete';
   const pk={ammo:120,meds:5,radaway:5,food:5,water:5};for(const [k,v] of Object.entries(pk))G.pack[k]=Math.max(G.pack[k],v);
   for(const w of['pistol','shotgun','rifle'])G.mag[w]=WEAP[w].cap;
   G.radioFound=true;G.hp=100;G.food=100;G.water=100;G.rads=0;G.sta=100;
-  S.build();toast('Ash King · every item, fast feet, V or FLY to take off',true);syncCheatUI();
+  S.build();toast('Ash King · tower fully built, every item, fast feet, V or FLY to take off',true);syncCheatUI();
+  if(atHome()){if(G.inBase)needReload=true;else reloadHere();}
   if(G.inBase)renderBase();save();}
 function syncCheatUI(){const c=!!G.cheat&&coarse;$('btnFly').hidden=!c;$('btnUp').hidden=$('btnDown').hidden=!(c&&flying);$('btnFly').classList.toggle('on',flying);$('btnFly').textContent=flying?'LAND':'FLY';}
 function setFly(on){if(!G.cheat||inside())return;flying=on;if(!on){vert=0;vel.y=0;}syncCheatUI();toast(on?'Flying · Space up, C down, V to land':'Landed');}
